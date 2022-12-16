@@ -167,7 +167,7 @@ def XCP2Str(a,V,N):
     return pStr + x2Str(x) + zStr
 
 ## convert string to XCP operator
-def Str2CP(mystr,n=None,t=None):
+def Str2CP(mystr,n=None,t=None,CP=True):
     mystr = mystr.upper()
     repDict = {' ':'','C':'','R':'',']':'*','[':'*',',':' '}
     for a,b in repDict.items():
@@ -176,7 +176,7 @@ def Str2CP(mystr,n=None,t=None):
     mystr = mystr.split('*')
     # print('mystr',mystr)
     xList,CPList,minn,mint = [],[],[],[]
-    symDict = {'X':1,'Z':1, 'S':2,'T':3,'W':0}
+    symDict = {'X':1,'Z':1, 'S':2,'T':3,'U':4,'W':0}
     for a in mystr:
         if (len(a)) > 0:
             s = a[0]
@@ -197,7 +197,8 @@ def Str2CP(mystr,n=None,t=None):
                 if xcomp:
                     xList.append(v[0])
                 else:
-                    mint.append(den + len(v) - 1)
+                    ti = den + len(v) - 1 if CP else den
+                    mint.append(ti)
                     CPList.append((num,den,v))
     # print('x',xList)
     # print('z',CPList)
@@ -317,3 +318,17 @@ def CP2Partition(qList,V):
     qList, V = CPNonZero(qList, V)
     addSupp = bin2Set(1 - np.sum(V,axis=0))
     return [bin2Set(v) for q,v in zip(qList,V)] + [[i] for i in addSupp]
+
+## Calculate Clifford level of CP or RP operator
+def CPlevel(q,V,N,CP=True):
+    q,V = CPNonZero(q,V)
+    t = log2int(N)
+    if t is None:
+        return t
+    den = (2 * N) // np.gcd(q, 2 * N)
+    if CP:
+        mint = [log2int(den[i]) + np.sum(V[i]) - 1 for i in range(len(q))]
+    else:
+        mint = [log2int(den[i]) for i in range(len(q))]
+    return np.max(mint)
+    

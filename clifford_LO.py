@@ -749,13 +749,17 @@ def canonical_logical_algorithm(q1,V1,LZ,t,Vto=None,debug=True):
 ############################################################
 
 # search for transversal logical operator at level t of the Clifford hierarchy
-def depth_one_t(Eq,SX,LX,SZ,LZ,t=2,debug=False):
+def depth_one_t(Eq,SX,LX,SZ,LZ,t=2,cList=None, debug=False):
     r,n = np.shape(SX)
     k,n = np.shape(LX)
     N = 1 << t
 
-    ## All binary vectors of length n weight 1-t
-    V = Mnt(n,t)
+    if cList is None:
+        ## All binary vectors of length n weight 1-t
+        V = Mnt(n,t)
+    else:
+        ## V based on partition supplied to algorithm
+        V = Mnt_partition(cList,n,t)
     
     ## Embedded Code
     ## move highest weight ops to left - more efficient in some cases
@@ -766,8 +770,16 @@ def depth_one_t(Eq,SX,LX,SZ,LZ,t=2,debug=False):
     SXLX = np.vstack([SX,LX])
 
     zList, qL, VL, K_M = comm_method(Eq_V, SX_V, LX_V, N,compact=True,debug=False)
-    qRP = zList[0] * 2
-    zList = zList[1:]
+    tList = [CPlevel(2*q,VL,N) for q in qL]
+    ## Level t logical operators
+    ix = [i for i in range(len(tList)) if tList[i] == t]
+    if len(ix) == 0:
+        print(f'No level {t} logical operators found.')
+        return None
+    j = min(ix)
+    zList = [a for a in zList]
+    qRP = zList.pop(j) * 2
+    zList = ZMat(zList,len(qRP))
     PRKM = np.hstack([zList * 2, ZMatZeros((len(zList),1))])
     PRKM = np.vstack([2* K_M, PRKM])
     PRKM, rowops = How(PRKM, 2*N)
@@ -801,7 +813,6 @@ def depth_one_t(Eq,SX,LX,SZ,LZ,t=2,debug=False):
 
         print("\nLogical Identites + Operators - CP Form")
         print(ZmatPrint(CPKM))
-
 
         pList, VL = DiagLOActions([qRP[:-1]//2],LX_V,N)
         qL = action2CP(VL,pList[0],N)
