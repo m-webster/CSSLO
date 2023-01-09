@@ -1,7 +1,10 @@
 from common import *
 import itertools as iter
+import json
+import os
 from NSpace import *
 from XCP_algebra import *
+
 
 ##########################################
 ## CSS Codes
@@ -125,6 +128,48 @@ def CodeTable(mystr):
             SXZ.append(z)
     return SX,SZ,SXZ
 
+############################################################
+## 2D Hyperbolic Tesselations
+############################################################
+
+
+def importCodeList(myfile):
+    mypath = sys.path[0] + "/hyperbolic_codes/"
+    f = open(mypath + myfile, "r")
+    mytext = f.read()
+    mytext = mytext.replace("\\\n","").replace("\n","")
+    mytext = mytext.replace("}","}\n")
+    mytext = mytext.split("\n")
+    codeList = []
+    for myline in mytext:
+        if len(myline) > 0:
+            myrow = json.loads(myline)
+            codeList.append(myrow)
+    f.close()  
+    return codeList
+
+def printCodeList(codeList,myfile):
+    temp = []
+    temp.append(f'Codes in File {myfile}:\n')
+    temp.append(f'i\tindex\tV\tE\tF')
+    for i in range(len(codeList)):
+        myrow = codeList[i]
+        V = myrow["zEV"].count("\n")+1
+        F = myrow["zEF"].count("\n")+1
+        E = myrow["zEV"].index("\n") if  myrow["zEV"].count("\n") > 0 else len(myrow["zEV"])
+        ix = myrow["index"]
+        temp.append(f'{i}\t{ix}\t{V}\t{E}\t{F}')
+    return "\n".join(temp)
+
+def hypColour(myrow):
+    SX = str2ZMatdelim( myrow['zFV'])
+    return SX, SX
+
+def hypCode(myrow):
+    SX = str2ZMatdelim( myrow['zEV'])
+    SZ = str2ZMatdelim( myrow['zEF'])
+    return SX, SZ
+
 
 ############################################################
 ## Symmetric Hypergraph Product Codes
@@ -153,23 +198,31 @@ def HPC(A,B):
     D = np.kron(A.T,ZMatI(nb))
     SZ = np.hstack([C,D])
 
+    return SX, SZ
+
     ## calc LX
     Ha, Ka, Fa = Triag(A.T)
     Hb, Kb, Fb = Triag(B)    
-    LX1 = np.kron(Fa,Kb).T
-    LX1 = np.hstack([LX1,ZMatZeros((len(LX1),ma*mb))])
-    LX2 = np.kron(Ka,Fb).T
-    LX2 = np.hstack([ZMatZeros((len(LX2),na*nb)),LX2])
-    LX = np.vstack([LX1,LX2])
+    temp = []
+    if np.sum(Fa) > 0 and np.sum(Kb)  > 0:
+        LX1 = np.kron(Fa,Kb).T
+        temp.append(np.hstack([LX1,ZMatZeros((len(LX1),ma*mb))])) 
+    if np.sum(Ka) > 0 and np.sum(Fb)  > 0:
+        LX2 = np.kron(Ka,Fb).T
+        temp.append(np.hstack([ZMatZeros((len(LX2),na*nb)),LX2]))
+    LX = np.vstack(temp)
 
-    ## calc LZ
+    # calc LZ
     Ha, Ka, Fa = Triag(A)
     Hb, Kb, Fb = Triag(B.T)
-    LZ1 = np.kron(Ka,Fb).T
-    LZ1 = np.hstack([LZ1,ZMatZeros((len(LZ1),ma*mb))])
-    LZ2 = np.kron(Fa,Kb).T
-    LZ2 = np.hstack([ZMatZeros((len(LZ2),na*nb)),LZ2])
-    LZ = np.vstack([LZ1,LZ2])
+    temp = []
+    if np.sum(Ka) > 0 and np.sum(Fb)  > 0:
+        LZ1 = np.kron(Ka,Fb).T
+        temp.append(np.hstack([LZ1,ZMatZeros((len(LZ1),ma*mb))]))
+    if np.sum(Fa) > 0 and np.sum(Kb)  > 0:
+        LZ2 = np.kron(Fa,Kb).T
+        temp.append(np.hstack([ZMatZeros((len(LZ2),na*nb)),LZ2]))
+    LZ = np.vstack(temp)
 
     # pivots = [bin2Set(x * y)[0]  for x, y in zip(LX,LZ)]
     # print('pivots',pivots)
@@ -263,6 +316,75 @@ def rotated_surface(L):
     SX = [set2Bin(n,x) for x in SX]
     LX = [set2Bin(n,LX)]
     return SX,LX
+
+
+
+
+#########################################################################
+## Poset Codes from Self-Orthogonal Codes Constructed from Posets and Their Applications in Quantum Communication
+#########################################################################
+
+def subsets(r):
+    temp = []
+    for s in range(len(r)+1):
+        temp.extend(list(iter.combinations(r,s)))
+    return temp
+
+def subIdeals(a,b):
+    if b == 0:
+        return subsets(range(a))
+    aSet = list(range(a))
+    return [tuple(aSet + list(bSet)) for bSet in subsets(range(a,b+a))]
+
+def posetCode(a1,a2,b1,b2):
+    if a2 > a1 or b2 > b1:
+        return False
+    I1 = subIdeals(a1,b1)
+    # print('I1',I1)
+    I2 = set(subIdeals(a2,b2))
+    # print('I2',I2)
+    SX = []
+    for r in I1:
+        if r not in I2:
+            SX.append(set2Bin(a1+b1,r))
+    return ZMat(SX).T
+
+###################################################
+## Double-Circulant codes - page 334 of self-dual codes by Rains
+###################################################
+
+def self_orthogonal(A):
+    return np.sum(matMul(A,A.T,2))==0
+
+def circulant(r):
+    return ZMat([np.roll(r,i) for i in range(len(r))])
+
+def semi_circulant(r):
+    r = bin2Zmat(r)[0]
+    R = circulant(r)
+    n = len(r) // 2 
+    for i in range(n):
+        R[i] = np.mod(R[i] + R[i+n],2)
+    return R[:n]
+
+def quad_circulant(r):
+    r = bin2Zmat(r)[0]
+    R = circulant(r)
+    return np.hstack([R]*4)
+
+def double_circulant(r, form=1):
+    r = bin2Zmat(r)[0]
+    print('r',r,len(r))
+    if form == 1:
+        r = r[1:]
+    R = circulant(r)
+
+    if form == 1:
+        R = np.hstack([[[1]]*len(R),R])
+        R = np.vstack([[0]+[1]*len(R),R ])
+    print('R')
+    print(ZmatPrint(R) )
+    return np.hstack([ZMatI(len(R)),R])
 
 
 ###################################################
@@ -568,7 +690,8 @@ def ker_search2(target,Eq,LX,SX,t,debug=False):
     KL = getKer(np.hstack([pList, EL]),N)
     # print(func_name(), 'KL')
     # print(ZmatPrint(KL))
-    if KL[0,0] > 0:
+    ## check if top lhs is 1 - in this case, the LO has been found
+    if KL[0,0] == 1:
         z = KL[0,1:]
         if debug:
             pList, V = DiagLOActions([z],LX,N)
