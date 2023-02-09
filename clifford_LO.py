@@ -10,11 +10,19 @@ from XCP_algebra import *
 ## CSS Codes
 ##########################################
 
-## create CSS code from various input types
-## Default is to give values for SX and LX, then calculate SZ and LZ
-## Can take either text or arrays as input
 def CSSCode(SX,LX=None,SZ=None,LZ=None):
-    ## convert to ZMat format - can be either string or array
+    """Create CSS code from various input types.
+
+    Keyword arguments:
+    SX -- X-checks 
+    LX -- X-logicals (optional)
+    SZ -- Z-checks (optional)
+    LZ -- Z-logicals (optional)
+
+    Default is to give values for SX and LX, then calculate SZ and LZ.
+    Can take either text or arrays as input.
+    Returns Eq,SX,LX,SZ,LZ. Eq is a zero vector of shape (1,n).
+    """
     SX = bin2Zmat(SX)
     LX = bin2Zmat(LX)
     SZ = bin2Zmat(SZ)
@@ -53,12 +61,13 @@ def CSSCode(SX,LX=None,SZ=None,LZ=None):
 
 ## for CSS code get LX
 def CSSgetLX(SX, SZ):
+    """Get LX for CSS code with check matrices SX, SZ."""
     m,n = np.shape(SX)
-    LiX = leadingIndices(SX)
+    LiX = [leadingIndex(x) for x in SX]
     mask = 1 - set2Bin(n,LiX)
     SZ = SZ * mask
     SZ, rowops = How(SZ,2)
-    LiZ = leadingIndices(SZ)
+    LiZ = [leadingIndex(x) for x in SZ]
     LiE = sorted(set(range(n)).difference(set(LiX)).difference(set(LiZ)))
     k = len(LiE)
     nkr = len(LiZ)
@@ -73,6 +82,7 @@ def CSSgetLX(SX, SZ):
 ## take logical X and Z
 ## arrange so that they are paired and have minimal overlap
 def LXZCanonical(LX, LZ):
+    """Modify LX, LZ such that LX LZ^T = I if possible."""
     LX, LZ = LXZDiag(LX,LZ)
     LZ, LX  = LXZDiag(LZ,LX)
     return LX, LZ
@@ -80,6 +90,7 @@ def LXZCanonical(LX, LZ):
 ## helper for LXZCanonical
 ## updates LX
 def LXZDiag(LX,LZ):
+    """Convert LX to a form with minimal overlap with LZ."""
     A = matMul(LX, LZ.T,2)
     A, rowops = How(A,2)
     LX = doOperations(LX,rowops,2)[:len(A)]
@@ -92,6 +103,9 @@ def LXZDiag(LX,LZ):
 
 ## hypercube code of Kubica, Earl Campbell in r dimensions on 2^r qubits
 def Hypercube(r):
+    """Create Hypercube code in r dimension on 2^r qubits.
+    Returns SX, LX.
+    """
     n = 1 << r
     SX = np.ones((1,n),dtype=int)
     LX = []
@@ -105,13 +119,32 @@ def Hypercube(r):
 
 ## Reed Muller code on 2^r-1 qubits
 def ReedMuller(r):
+    """Create Reed Muller code on 2^r-1 qubits
+    Returns SX, LX.
+    """
     SX = Mnt(r,r).T
     m,n = np.shape(SX)
     LX = np.ones((1,n),dtype=int)
     return SX,LX
 
+# ## Reed Muller code on 2^r-1 qubits
+def ReedMullerMod(r,t):
+    ## odd values of t
+    R = range(1,2*t,2)
+    ## drop first row of Mnt
+    SX = [set2Bin(r,s) for k in R for s in itertools.combinations(range(r),k)]
+    SX = ZMat(SX[1:]).T
+    ## LX is first row, remainder is SX
+    LX = ZMat([SX[0]])
+    SX = SX[1:]
+    return SX,LX
+
+
 ## parse code from codetables.de
 def CodeTable(mystr):
+    """parse check matrix from codetables.de.
+    Returns SX, SZ and SXZ (Z components of X-checks)
+    """
     SX, SZ, SXZ = [],[],[]
     mystr = mystr.replace(" ","")
     mystr = mystr.replace("[","")
@@ -128,12 +161,129 @@ def CodeTable(mystr):
             SXZ.append(z)
     return SX,SZ,SXZ
 
+
+############################################################
+## Triorthogonal Codes from Classification of Small Triorthogonal Codes
+############################################################
+
+def triCodeData():
+    '''Extract triorthogonal code data from file
+    Returns: list of polynomials defining the triorthogonal codes.
+    '''
+    mypath = sys.path[0] + "/"
+    myfile = 'triorthogonal.txt'
+    f = open(mypath + myfile, "r")
+    mytext = f.read()
+    mytext = mytext.split("\n")
+    temp = []
+    for r in mytext:
+        temp.append(r.split("\t"))
+    return temp
+
+def TriCodeParams(triRow):
+    '''Display key row data from triRow as a string.'''
+    return f'ix={triRow[0]}; r=max(k)={triRow[2]}; c=max(n)={triRow[3]}; f(x)={triRow[1]}'
+
+def parseTriCode(triRow):
+    '''Parse the data from triRow and return a representation of the polynomial in list form.'''
+    r = int(triRow[2])
+    A = ZMat([set2Bin(r,p) for p in parseTriPoly(triRow[1])])
+    return A[:,1:]
+
+def getTriCode(triRow,k):
+    '''Return check matrix for triRow with k logical qubits.'''
+    A = parseTriCode(triRow)
+    m,r = np.shape(A)
+    temp = []
+    V = np.vstack([ZMatZeros((1,r)), Mnt(r,r)])
+    if np.sum(A) == 0:
+        c = len(V)
+        G = V.T 
+    else:
+        myval = []
+        for v in A:
+            myval.append(uLEV(v,V))
+        ix = np.mod(np.sum(myval,axis=0),2)
+        c = np.sum(ix)
+        G = V[ix==1].T
+    G = np.vstack([[1]*c,G])
+    SX, rowops = How(G,2)
+    if len(SX) < k:
+        return None
+    SX = SX[:,k:]
+    LX = SX[:k]
+    SX = SX[k:]
+    return SX,LX
+
+def parseTriPoly(poly):
+    '''Parse a triorthogonal polynomial in text form from file.'''
+    tokens = []
+    t = ''
+    for c in poly:
+        if c in ["(",")","+"]:
+            if len(t) > 0:
+                tokens.append(t)
+            t = ''
+            tokens.append(c)
+        else:
+            t += c
+    if len(t) > 0:
+        tokens.append(t)
+    inPar = 0
+    temp = []
+    for t in tokens:
+        if t == "(":
+            inPar = 1
+            brack = []
+        if t == ")":
+            inPar = 2
+        if t not in ["(",")","+"]:
+            if t[0] == "x":
+                myterm = t[1:].split('x')
+                myterm = [int(c) for c in myterm]
+            else:
+                myterm = []
+            if inPar == 0:
+                temp.append(myterm)
+            if inPar == 1:
+                brack.append(myterm)
+            if inPar == 2:
+                for b in brack:
+                    temp.append(b + myterm)
+                inPar = 0
+    return temp
+
+def tOrthogonal(SX):
+    '''Return largest t for which the weight of the product of any t rows of SX is even.'''
+    t = 0
+    r, n = np.shape(SX)
+    while t < r:
+        ## all combinations of t+1 rows
+        for ix in iter.combinations(range(r),t+1):
+            T = np.prod(SX[ix,:],axis=0)
+            if np.sum(T) % 2 == 1:
+                return t 
+        t += 1
+    return t
+
+def nkdReport(SX,LX,SZ,LZ):
+    '''Report [[n,k,dX,dZ]] for CSS code specified by SX,LX,SZ,LZ.'''
+    k,n = np.shape(LX)
+    Zop, Zact = ZDistance(SZ,LZ,LX)
+    Xop, Xact = ZDistance(SX,LX,LZ)
+    return(f'n:{n} k: {k} dX: {sum(Xop)} dZ:{sum(Zop)}')
+
+
 ############################################################
 ## 2D Hyperbolic Tesselations
 ############################################################
 
 
 def importCodeList(myfile):
+    """Import hyperbolic surface codes stored in myfile.
+    Records in myfile are stored in JSON format.
+    Parse each record and return list of dict codeList.
+    """
     mypath = sys.path[0] + "/hyperbolic_codes/"
     f = open(mypath + myfile, "r")
     mytext = f.read()
@@ -149,6 +299,7 @@ def importCodeList(myfile):
     return codeList
 
 def printCodeList(codeList,myfile):
+    '''Print parameters of the hyperbolic codes stored in list of dict codeList'''
     temp = []
     temp.append(f'Codes in File {myfile}:\n')
     temp.append(f'i\tindex\tV\tE\tF')
@@ -162,10 +313,12 @@ def printCodeList(codeList,myfile):
     return "\n".join(temp)
 
 def hypColour(myrow):
+    '''Make a hyperbolic colour code based on Face-Vertex adjacency matrix stored in myrow.'''
     SX = str2ZMatdelim( myrow['zFV'])
     return SX, SX
 
 def hypCode(myrow):
+    '''Make a hyperbolic surface code based on Face-Edge and Vertex-Edge adjacency matrix stored in myrow.'''
     SX = str2ZMatdelim( myrow['zEV'])
     SZ = str2ZMatdelim( myrow['zEF'])
     return SX, SZ
@@ -178,13 +331,17 @@ def hypCode(myrow):
 
 ## Symmetric Hypergraph Product Code
 def SHPC(T):
+    '''Make symmetric hypergraph product code from T.
+    T can either be a string or np array.
+    Returns SX, SZ.'''
     T = bin2Zmat(T)
     H = matMul(T.T, T,2)
     return HPC(H,H)
 
-## calculate HPC with canonical LX, LZ
-## from Quintavalle et al Partitioning qubits in hypergraph product codes to implement logical gates
 def HPC(A,B):
+    '''Make hypergraph product code from clasical codes A, B
+    A and B can either be a string or np array.
+    Returns SX, SZ.'''
     A = bin2Zmat(A)
     B = bin2Zmat(B)
     ma,na = np.shape(A)
@@ -197,43 +354,15 @@ def HPC(A,B):
     C = np.kron(ZMatI(na) ,B.T)
     D = np.kron(A.T,ZMatI(nb))
     SZ = np.hstack([C,D])
-
     return SX, SZ
 
-    ## calc LX
-    Ha, Ka, Fa = Triag(A.T)
-    Hb, Kb, Fb = Triag(B)    
-    temp = []
-    if np.sum(Fa) > 0 and np.sum(Kb)  > 0:
-        LX1 = np.kron(Fa,Kb).T
-        temp.append(np.hstack([LX1,ZMatZeros((len(LX1),ma*mb))])) 
-    if np.sum(Ka) > 0 and np.sum(Fb)  > 0:
-        LX2 = np.kron(Ka,Fb).T
-        temp.append(np.hstack([ZMatZeros((len(LX2),na*nb)),LX2]))
-    LX = np.vstack(temp)
-
-    # calc LZ
-    Ha, Ka, Fa = Triag(A)
-    Hb, Kb, Fb = Triag(B.T)
-    temp = []
-    if np.sum(Ka) > 0 and np.sum(Fb)  > 0:
-        LZ1 = np.kron(Ka,Fb).T
-        temp.append(np.hstack([LZ1,ZMatZeros((len(LZ1),ma*mb))]))
-    if np.sum(Fa) > 0 and np.sum(Kb)  > 0:
-        LZ2 = np.kron(Fa,Kb).T
-        temp.append(np.hstack([ZMatZeros((len(LZ2),na*nb)),LZ2]))
-    LZ = np.vstack(temp)
-
-    # pivots = [bin2Set(x * y)[0]  for x, y in zip(LX,LZ)]
-    # print('pivots',pivots)
-    # print('SHPC_partition(A,B)',SHPC_partition(A,B))
-
-    return SX, SZ, LX, LZ
-
 def SHCP_labels(m,n,s):
+    '''Return labels of symmetric hypergraph product code.
+    Assumes m x n grid and s is either R or L.'''
     return [(i,j,s) for i in range(m) for j in range(n)]
 
 def SHPC_partition(T):
+    '''Calculate qubit partition resulting in a depth-one transversal gate for an SHPC code.'''
     T = bin2Zmat(T)
     H = matMul(T.T, T,2)
     m,n = np.shape(H)
@@ -254,6 +383,8 @@ def SHPC_partition(T):
 ## Phase logical operator for SHPC and ZX symmetry codes
 ## if A is set, the qubits in A get S and the rest get S^3
 def SHPC_operator(cList,A=None):
+    '''Calculate partitioned logical operator for an SHPC code based on qubit partition cList.
+    If A is set, this indicates which of the fixed qubits have an S operator applied to them. '''
     S3,CZ = [], []
     for c in cList:
         if len(c) == 2:
@@ -274,6 +405,7 @@ def SHPC_operator(cList,A=None):
 
 ## generate H matrix which has symmetric weight LX and LZ
 def genH(n,t=None):
+    '''Generate matrix suitable for producing a SHPC code.'''
     if t is None:
         t = n
     M = []
@@ -283,22 +415,37 @@ def genH(n,t=None):
     return np.hstack([M,ZMatI(len(M))])
 
 ## repetition code
-def repCode(r):
+def repCode(r,closed=True):
+    '''Generate classical repetition code on r bits.
+    If closed, include one dependent row closing the loop.'''
+    s = r if closed else r-1 
+    SX = ZMatZeros((s,r))
+    for i in range(s):
+        SX[i,i] = 1
+        SX[i,(i+1)%r] = 1
+    return SX
     SX = ZMatI(r-1)
+    zr = ZMatZeros((r-1,1))
+    return np.hstack([SX,zr]) + np.hstack([zr,SX]) 
     return np.hstack([SX,np.ones((r-1,1),dtype=int)])
 
 ## build 2D toric code from repetition code and SHPC constr
 def toric2D(r):
+    '''Generate distance r 2D toric code using SHCP construction.
+    Returns SX, SZ.'''
     A = repCode(r)
     return SHPC(A)
 
 ## partition for toric code SS^3 logical operator
 def toric2DPartition(r):
+    '''Generate qubit partition for distance r 2D toric code.'''
     A = repCode(r)
     return SHPC_partition(A)
 
 ## LxL Rotated Surface Code
 def rotated_surface(L):
+    '''Generate distance L rotated surface code.
+    Returns SX, LX.'''
     n = L * L
     row_upper = [[[r*L + 2*c + (r % 2),r*L +  2*c + 1 + (r % 2)] for c in range(L // 2) ] for r in range(L)]
     row_lower = [[[r*L + 2*c + 1 - (r % 2), r*L + 2*c + 2 - (r % 2)] for c in range(L // 2) ] for r in range(L)]
@@ -318,31 +465,35 @@ def rotated_surface(L):
     return SX,LX
 
 
-
-
 #########################################################################
 ## Poset Codes from Self-Orthogonal Codes Constructed from Posets and Their Applications in Quantum Communication
 #########################################################################
 
 def subsets(r):
+    '''Generate list of subsets of [0..r]'''
     temp = []
     for s in range(len(r)+1):
         temp.extend(list(iter.combinations(r,s)))
     return temp
 
 def subIdeals(a,b):
+    '''Return subideal of [0..a-1],[0..b-1] in a poset.
+    if b==0, this is just the subsets of [a..a-1].
+    if b>0, these are of form {0..a-1} u s where s is a subset of [0..b-1].
+    '''
     if b == 0:
         return subsets(range(a))
     aSet = list(range(a))
     return [tuple(aSet + list(bSet)) for bSet in subsets(range(a,b+a))]
 
 def posetCode(a1,a2,b1,b2):
+    '''Return Poset code where a1>=a2,b1>=b2 are integers >= 0.
+    columns of SX are binary vectors of length a1 + b1 corresponding to the subIdeals of (a1,b1) which are not subIdeals of (a2,b2).
+    '''
     if a2 > a1 or b2 > b1:
         return False
     I1 = subIdeals(a1,b1)
-    # print('I1',I1)
     I2 = set(subIdeals(a2,b2))
-    # print('I2',I2)
     SX = []
     for r in I1:
         if r not in I2:
@@ -350,53 +501,14 @@ def posetCode(a1,a2,b1,b2):
     return ZMat(SX).T
 
 ###################################################
-## Double-Circulant codes - page 334 of self-dual codes by Rains
-###################################################
-
-def self_orthogonal(A):
-    return np.sum(matMul(A,A.T,2))==0
-
-def circulant(r):
-    return ZMat([np.roll(r,i) for i in range(len(r))])
-
-def semi_circulant(r):
-    r = bin2Zmat(r)[0]
-    R = circulant(r)
-    n = len(r) // 2 
-    for i in range(n):
-        R[i] = np.mod(R[i] + R[i+n],2)
-    return R[:n]
-
-def quad_circulant(r):
-    r = bin2Zmat(r)[0]
-    R = circulant(r)
-    return np.hstack([R]*4)
-
-def double_circulant(r, form=1):
-    r = bin2Zmat(r)[0]
-    print('r',r,len(r))
-    if form == 1:
-        r = r[1:]
-    R = circulant(r)
-
-    if form == 1:
-        R = np.hstack([[[1]]*len(R),R])
-        R = np.vstack([[0]+[1]*len(R),R ])
-    print('R')
-    print(ZmatPrint(R) )
-    return np.hstack([ZMatI(len(R)),R])
-
-
-###################################################
 ## Supporting Methods for Logical Operator Algs  ##
 ###################################################
 
-## calculate q + u SX for wt(u) <= t
-## iterator version
-## if return_u, yield u 
+
 def Orbit2distIter(Eq,SX,t=None,return_u=False):
+    '''Interator yielding binary rows of form (q + u SX \mod 2) for q in Eq and wt(u) <= t.
+    if return_u, yield u as well as the row.'''
     r, n = np.shape(SX)
-    # r = len(SX)
     if t is None:
         t = r
     t = min(t, r)
@@ -410,8 +522,9 @@ def Orbit2distIter(Eq,SX,t=None,return_u=False):
                 else:
                     yield vSX
 
-## Same as Orbit2distIter, but return results in ZMat format
 def Orbit2dist(Eq,SX,t=None,return_u=False):
+    '''Matrix with binary rows of form (q + u SX \mod 2) for q in Eq and wt(u) <= t.
+    if return_u, yield u as well as the row.'''
     temp = list(Orbit2distIter(Eq,SX,t,return_u))
     if return_u:
         temp = list(zip(*temp))
@@ -425,10 +538,10 @@ def Orbit2dist(Eq,SX,t=None,return_u=False):
 
 ## generate codewords
 def codewords(Eq,SX,LX):
+    '''Return canonical codewords LI={v}, CW={sum_u (q + uSX + vLX)}'''
     r,n = np.shape(SX)
     zvec = ZMatZeros((1,n))
     OSX = Orbit2dist(zvec, SX)
-
     LI, CW = [],[]
     for m,v in Orbit2distIter(Eq,LX,return_u=True):
         S = np.mod(m + OSX,2)
@@ -438,20 +551,25 @@ def codewords(Eq,SX,LX):
 
 ## print codewords
 def state2str(S):
+    '''Print a state corresponding to a binary matrix S in the form \sum_{x \in S}|x>'''
     return "+".join([ket(x) for x in S])
 
 ## Display |x> for states
 def ket(x):
+    '''Display |x> for states.'''
     return f'|{ZMat2str(x)}>'
 
 
 def print_codewords(Eq,SX,LX):
+    '''Print the canonical codwords of a CSS code defined by X-checks SX and X-logicals LX'''
     V, CW = codewords(Eq,SX,LX)
     print('\nCodewords')
     for i in range(len(V)):
         print(f'{ket(V[i])} : {state2str(CW[i])}')
 
 def print_SXLX(SX,LX,SZ,LZ,compact=True):
+    '''Print the X-checks, X-logicals, Z-checks, Z-logicals of a CSS code.
+    If compact=True, print full vector representations, otherwise print support of the vectors.'''
     print('SX')
     for x in SX:
         print(x2Str(x) if compact else ZMat2str(x))
@@ -465,9 +583,16 @@ def print_SXLX(SX,LX,SZ,LZ,compact=True):
     for z in LZ:
         print(z2Str(z,2) if compact else ZMat2str(z)) 
 
-## check if qVec is a logical operator by calculating [[X, CP_V(qVec)]] for each X in SX
-## z, K_M are modulo 2N
+
 def CPIsLO(qVec,SX,K_M,V,N,CP=True):
+    '''Check if qVec is a logical operator by calculating the group commutator [[A, CP_V(qVec)]] for each A in SX
+    Inputs: 
+    qVec: Z_2N vector of length |V| representing a product of CP operators \prod_{v \in V}CP_N(qVec[v],v)
+    SX: binary matrix representing X-checks
+    K_M: Z_2N matrix representing phase and z-components of logical identities K_M = ker_{2N}(E_M)
+    V: binary matrix representing vector part of CP operators
+    N: precision of operators
+    CP: if True, treat operators as CP operators, otherwise RP operators'''
     for x in SX: 
         c = CPComm(qVec,x,V,N,CP)
         c, u = matResidual(K_M,c,2*N)
@@ -479,8 +604,14 @@ def CPIsLO(qVec,SX,K_M,V,N,CP=True):
             return False
     return True
 
-## test if z is the Z-component of a logical XP operator
+
 def isDiagLO(z,SX,K_M,N):
+    '''Test if z is the Z-component of a logical XP operator.
+    Inputs:
+    z: Z_N vector to test
+    SX: X-checks
+    K_M: Z_N matrix representing phase and Z-components of diagonal logical identities
+    N: precision of XP operators'''
     for x in SX:
         ## componentwise product of x and z
         xz = x * z 
@@ -494,20 +625,28 @@ def isDiagLO(z,SX,K_M,N):
             return False 
     return True
 
-## Logical actions of z in LZ
-## LX are X-logicals
-## z is modulo N
+
 def DiagLOActions(LZ,LX,N):
+    '''Return phase vector for each Z component in LZ.
+    Inputs:
+    LZ: Z_N matrix whose rows are the z-vectors
+    LX: binary matrix - X-logicals
+    N: precision of XP operators.
+    Output: 
+    phase vector p for each z component in LZ such that XP(0|0|z)|v>_L = w^{p[v]}|v>_L plus list of indices v
+    '''
     t = log2int(N)
     k,n = np.shape(LX)
     Eq = ZMatZeros((1,n))
     vLX,vList = Orbit2dist(Eq,LX,t,True)
-    return ZMat(np.mod([[np.dot(z,x) for x in vLX] for z in LZ],N)),vList
+    pVec = ZMat(np.mod([[np.dot(z,x) for x in vLX] for z in LZ],N))
+    return pVec,vList
 
-# vList a list of logical indices
-# pList a list of phases applied on each by an operator
-# return a CP operator
+
 def action2CP(vList,pVec,N):
+    '''Return controlled phase operator corresponding to phase vector pVec
+    pList a list of phases applied on each by an operator
+    return a CP operator'''
     qVec = pVec.copy()
     for i in range(len(qVec)):
         v, p = vList[i],qVec[i]
@@ -518,29 +657,28 @@ def action2CP(vList,pVec,N):
             qVec[i] = p
     return qVec
 
-def codeword_test(zCP,Eq,SX,LX,V,N):
-    ## test action on each codeword is constant
+def codeword_test(qVec,Eq,SX,LX,V,N):
+    '''Print report on action of \prod_{v \in V}CP_N(qVec[v],v) operator on comp basis elts in each codeword.
+    Inputs:
+    qVec: Z_2N vector of length |V| representing CP operator
+    Eq:
+    SX: X-checks in binary matrix form
+    LX: X-logicals in binary matrix form
+    V: vectors for CP operator
+    N: precision of CP operator'''
     vList, CW = codewords(Eq,SX,LX)
     for i in range(len(CW)):
-        s = {CPACT(e,zCP,V,N) for e in CW[i]}
+        s = {CPACT(e,qVec,V,N) for e in CW[i]}
         print(f'{ket(vList[i])}L {s}')
-        # print(ket(vList[i]),"=",  state2str(CW[i]))
 
-## action of CP operator zCP, V on LX
-def action_test(zCP,Eq,LX,t,V):
+def action_test(qVec,Eq,LX,t,V):
+    '''Return action of \prod_{v \in V}CP_N(qVec[v],v) operator on codewords in terms of CP operators.'''
     N = 1 << t
     ## test logical action
     Em,vList = Orbit2dist(Eq,LX,t,True)
     ## phases are modulo 2N 
-    pList = ZMat([CPACT(e,zCP,V,N) for e in Em])//2
-
-    # for i in range(len(Em)):
-    #     e,v,p = Em[i],vList[i],pList[i]
-    #     print(f'{ket(v)}L = {ket(e)} {p}')
+    pList = ZMat([CPACT(e,qVec,V,N) for e in Em])//2
     act = action2CP(vList,pList, N)
-    # print('act',act)
-    # mystr = CP2Str(2* act,vList, N)[1]
-    # print("Action:", mystr)
     return 2*act, vList
 
 ######################################################
@@ -548,6 +686,7 @@ def action_test(zCP,Eq,LX,t,V):
 ######################################################
 
 def minWeight(SX):
+    '''Return a set of vectors spanning <SX> which have minimum weight.'''
     done = False
     w = np.sum(SX)
     SXt = [tuple(e) for e in SX]
@@ -563,15 +702,14 @@ def minWeight(SX):
                 done = False
     return SX
 	
-## add row i to all elements of SX
+
 def updateSX(SX,SXt,i):
+    '''Add row i to all elements of SX - helper function for minWeight'''
     SXw = np.sum(SX,axis=-1)
     e = SX[i]
     SXe = np.mod(SX+e,2)
     SXet = [tuple(e) for e in SXe]
     SXew = np.sum(SXe,axis=-1)
-
-    # ix = SXew < SXw
     for j in range(len(SX)):
         if j != i and (SXew[j],SXet[j]) < (SXw[j],SXt[j]):
             SX[j] = SXe[j]
@@ -579,24 +717,35 @@ def updateSX(SX,SXt,i):
     return SX,SXt
 
 def ZDistance(SZ,LZ,LX):
+    '''Find lowest weight element of <SZ,LZ> which has a non-trivial logical action.
+    Return z component and action'''
     SZLZ = np.vstack([SZ,LZ])
     SZLZ, rowops = How(SZLZ,2)
     MW =  minWeight(SZLZ)
     LA = matMul(MW,LX.T,2)
     ix = np.sum(LA,axis=-1) > 0
-    MW = MW[ix]
-    LA = LA[ix]
+    ## cover the case where there are no nontrivial LO - min weight of stabilisers
+    if np.any(ix):
+        MW = MW[ix]
+        LA = LA[ix]
     ix = np.argmin(np.sum(MW,axis=-1))
     return MW[ix], LA[ix]
-
-
 
 ########################################################
 ## Logical Identity Algorithm
 ########################################################
 
 def LIAlgorithm(Eq,LX,SX,N,compact=True,debug=False):
-    ## Logical identities
+    '''Run logical Identity Algorithm.
+    Inputs:
+    Eq: 1xn zero vector
+    LX: X logicals
+    SX: X-checks
+    N: required precision
+    compact: print full vector form if True, else support form
+    debug: verbose output
+    Output:
+    KM: Z_N matrix representing phase and z components of diagonal logical identities.'''
     KM = getKM(Eq, SX, LX, N)
     if debug:
         print(f'\nLogical Identities Precision N={N}:')
@@ -612,16 +761,26 @@ def LIAlgorithm(Eq,LX,SX,N,compact=True,debug=False):
 ########################################################
 
 
-## diagonal logical identity generators: Ker_N(E_M)
+
 def getKM(Eq,SX, LX,N):
+    '''Return KM - Z_N matrix representing phase and z components of diagonal logical identities.'''
     t = log2int(N)
     A = Orbit2dist(Eq, np.vstack([SX,LX]), t)
     A = np.hstack([A,[[1]]*len(A)])
     return getKer(A,N)
 
-## Algorithm 1: diagonal logical operators via Kernel method
-## if target is not None - find LO of form CP_N(p,target)
+
 def diagLOKer(Eq,LX,SX,N,target=None):
+    '''Return diagonal logical operators via Kernel method.
+    Inputs:
+    Eq: 1xn zero vector
+    LX: X logicals
+    SX: X-checks
+    N: required precision
+    target: if not None, search for an implementation of the target.
+    Output:
+    K_L: Z components and phase vectors of diagonal logical operators
+    vList: list of codewords |v>_L which are the components of the phase vectors.'''
     r,n = np.shape(SX)
     ## t is orbit distance - if N = 2^t, use t else t is None
     t = log2int(N)
@@ -646,8 +805,15 @@ def diagLOKer(Eq,LX,SX,N,target=None):
     K_L = getKer(E_L,N)
     return K_L, vList
 
-# algorithm 1
 def ker_method(Eq,LX,SX,N,compact=True):
+    '''Run the kernel method and print results.
+    Inputs:
+    Eq: 1xn zero vector
+    LX: X logicals
+    SX: X-checks
+    N: required precision
+    compact: if True, output full vector forms, otherwise support view.
+    '''
     r,n = np.shape(SX)
     KL,V = diagLOKer(Eq,LX,SX,N)
     m = len(V)
@@ -675,8 +841,19 @@ def ker_method(Eq,LX,SX,N,compact=True):
         print(f'{i}: {ket(V[i])}')
 
 
-## More flexible search - allows for operators of form S[0]S3[1]
-def ker_search2(target,Eq,LX,SX,t,debug=False):
+
+def ker_search(target,Eq,LX,SX,t,debug=False):
+    '''Run kernel search algorithm.
+    Inputs:
+    target: string corresponding logical CP operator to search for
+    Eq: 1xn zero vector
+    LX: X logicals
+    SX: X-checks
+    t: required level of Clifford hierarchy
+    debug: if True, verbose output.
+    Output:
+    z-component of a diagonal XP operator implementing target, or None if this is not possible.
+    '''
     r, n = np.shape(SX)
     k = len(LX)
     (x,qL), VL, t2 = Str2CP(target,n=k)
@@ -703,43 +880,21 @@ def ker_search2(target,Eq,LX,SX,t,debug=False):
         print(func_name(),f'{target} Not found')
     return None
 
-# def ker_search(target,Eq,LX,SX,N,compact=True):
-#     ## convert target from string to binary vector
-#     (x,z), V_L, t = Str2CP(target,n=len(LX))
-#     j = bin2Set(z)
-#     if len(j) != 1: 
-#         print(f'\nCould not search for {target}')
-#         return False
-#     print(f'\nSearching for {target}')
-#     binStr = V_L[j[0]]
-#     KL,V = diagLOKer(Eq,LX,SX,N,binStr)
-#     print(f'\nK_L = Ker_{N}(E_L):')
-#     if compact:
-#         print(ZMat2compStr(KL))
-#     else:
-#         print(ZmatPrint(KL))
-#     ## swap phase component to first col to get action basis
-#     r,n = np.shape(SX)
-#     LZN, pList = KL[:,:n], np.mod(- KL[:,n:],N)
-#     KL, rowops = How(np.hstack([pList, LZN]),N)
-#     p, z = KL[0,0], KL[0,1:]
-#     if p > 0:
-#         print(f'\nFound Logical Operator:')
-#         cpstr = CP2Str([2*p],[binStr],N)[1]
-#         if compact:
-#             print(cpstr,":", z2Str(z,N))
-#         else:
-#             print(cpstr,":", ZMat2str(z))
-#     else:
-#          print(f'\nLogical Operator {target} not found')
-
-
 ##########################################################
 ## Commutator Method
 ##########################################################
 
-## return list of z components LZ and their action in terms of CP operators CPList
+
 def CPLogicalOps(SX,LX,K_M, N):
+    '''Return list of z components of diagonal logical XP operators and their action in terms of CP operators.
+    Inputs:
+    LX: X logicals
+    SX: X-checks
+    K_M: phase and z components of diagonal logical XP identities 
+    Output:
+    LZ: list of z components
+    CPList: list of q-vectors of CP operators
+    vList: list of vectors v for the CP operators CP_N(q[v],v)'''
     LZ = DiagLOComm(SX,K_M,N)
     LA, vList = DiagLOActions(LZ,LX,N)
 
@@ -756,20 +911,27 @@ def CPLogicalOps(SX,LX,K_M, N):
     return LZ, vList, CPlist
 
 
-## Algorithm 2: Commutator method for diagonal logical operators
-## assume N is even
-
 def DiagLOComm(SX,K_M,N):
+    '''Return z components of generating set of logical XP operators using Commutator Method.
+    Inputs:
+    SX: X-checks
+    K_M: phase and z components of diagonal logical XP identities 
+    N: required precision
+    Output:
+    LZ: list of z components of logical XP operators.'''
     LZ = None
     for x in SX:
         Rx = commZ(x,K_M,N)
         LZ = Rx if LZ is None else nsIntersection([LZ, Rx],N)
-
-    # print(func_name(), elapsedTime())
     return LZ
 
-## span of commutators of x up to operators in K_M
 def commZ(x,K_M,N):
+    '''Return generating set of Z-components for which group commutator with X-check x is a logical identity.
+    Inputs:
+    x: an X-check (binary vector of length n)
+    K_M: phase and z components of diagonal logical XP identities 
+    N: required precision
+    '''
     n = len(x)
     ## diag(x)
     xSet = bin2Set(x)
@@ -797,6 +959,20 @@ def commZ(x,K_M,N):
     return np.vstack([Rx,Ix])
 
 def comm_method(Eq, SX, LX, N,compact=True,debug=True):
+    '''Run the commutator method and print results.
+    Inputs:
+    Eq: 1xn zero vector
+    LX: X logicals
+    SX: X-checks
+    N: required precision
+    compact: if True, output full vector forms, otherwise support view.
+    debug: if True, verbose output.
+    Output:
+    zList: list of z-components generating non-trivial diagonal XP operators
+    qList: list of q-vectors corresponding to logical action of each operator
+    V: vectors indexing qList
+    K_M: phase and z components of diagonal logical XP identities 
+    '''
     ## Logical identities
     K_M = LIAlgorithm(Eq,LX,SX,N,compact,debug=debug)
    
@@ -838,27 +1014,27 @@ def comm_method(Eq, SX, LX, N,compact=True,debug=True):
 ## Embedded Codes
 ############################################################
 
-## canonical logical operators for any CP
+
 def canonical_logical_algorithm(q1,V1,LZ,t,Vto=None,debug=True):
-    # m,k = np.shape(V1)
+    '''Run canonical logical operator algorithm for given code and target CP operator
+    Inputs:
+    q1: q-vector for CP operator \prod_{v in V1}CP_N(q[v],v)
+    V1: support vectors for CP operator
+    LZ: binary matrix representing Z-logicals 
+    t: Clifford hierarchy level
+    Vto: if not None, return CP operators using vectors from Vto
+    debug: if True, verbose output'''
     q1, V1 = CPNonZero(q1,V1)
     N = 1 << t
-    # print('len(V1)',len(V1))
     ## q1, V1 are logical CP operators - convert to RP
     q2, V2 = CP2RP(q1,V1,t,CP=True,Vto=None)
-    # print('len(V2)',len(V2))
-    # print('q2',CP2Str(q2,V2,N,CP=False)[1])
     ## canonical logical in RP form
     q3 = q2 
     V3 = matMul(V2,LZ) 
-    # print('len(V3)',len(V3))
-    # print('q3',CP2Str(q3,V3,N,CP=False)[1])
     ## convert to CP - this will ensure max support size of operators is t
     q4,V4 = CP2RP(q3,V3,t,CP=False,Vto=Vto)
-    # print('len(V4)',len(V4))
 
     q5,V5 = CP2RP(q4,V4,t,CP=True,Vto=Vto)
-    # print('len(V5)',len(V5))
     if debug:
         print('Canonical Logical Operator Implementation - CP')
         print(CP2Str(q4,V4,N,CP=True)[1])
@@ -871,8 +1047,20 @@ def canonical_logical_algorithm(q1,V1,LZ,t,Vto=None,debug=True):
 ## Depth One Algorithm
 ############################################################
 
-# search for transversal logical operator at level t of the Clifford hierarchy
-def depth_one_t(Eq,SX,LX,SZ,LZ,t=2,cList=None, debug=False):
+
+def depth_one_t(Eq,SX,LX,t=2,cList=None, debug=False):
+    '''Run depth-one algorithm - search for transversal logical operator at level t of the Clifford hierarchy
+    Inputs:
+    Eq: 1xn zero vector
+    LX: X logicals
+    SX: X-checks
+    t: required level of Clifford hierarchy
+    cList: partition of qubits (optional) - improves runtime for known symmetries
+    debug: if true, verbose output
+    Output: if depth-one operator found:
+    cList: partition of the qubits as a list of cycles of the qubits
+    target: logical action as text representation of CP operator
+    '''
     r,n = np.shape(SX)
     k,n = np.shape(LX)
     N = 1 << t
@@ -967,129 +1155,47 @@ def depth_one_t(Eq,SX,LX,SZ,LZ,t=2,cList=None, debug=False):
     else:
         print("\nNo Depth-One Solution Found")
 
-def depth_one_algorithm(Eq,SX,LX,SZ,LZ,target,cList=None,debug=False):
-    r,n = np.shape(SX)
-    k,n = np.shape(LX)
-    (x,qL), VL, t = Str2CP(target,n=k)
-    N = 1 << t
-    if cList is None:
-        ## All binary vectors of length n weight 1-t
-        V = Mnt(n,t)
-    else:
-        V = Mnt_partition(cList,n,t)
+############################################################
+## Helper Functions for findDepth1
+############################################################
 
-    ## Embedded Code
-    ## move highest weight ops to left - more efficient in some cases
-    V = np.flip(V,axis=0)
-    SX_V = matMul(SX, V.T, 2)
-    LX_V = matMul(LX, V.T, 2)
-    Eq_V,SX_V,LX_V,SZ_V,LZ_V = CSSCode(SX_V,LX_V)
-    SXLX = np.vstack([SX,LX])
-
-    if cList is None:
-        ## Canonical form of LO
-        (qCP,V1),(qPR,VL2) = canonical_logical_algorithm(qL,VL,LZ,t,V)
-    else:
-        print(f'\nKernel Method - Search for {target}')
-        qPR = ker_search2(target,Eq_V,LX_V,SX_V,t,debug=True)
-        if qPR is None: 
-            print(f'Could not find {target} with this partition')
-            return None
-        qPR = 2 * qPR
-        qCP,V2 = CP2RP(qPR,V,t,False,V)
-
-    ## Logial Identities - KM modulo 2N
-    PRKM = getKM(Eq_V,SX_V,LX_V,N) * 2
-
-    ## add all zeros row to end of V, qCP and qPR representing phase component
-    V = np.vstack([V,ZMatZeros((1,n))])
-    qCP = np.hstack([qCP,[0]])
-    qPR = np.hstack([qPR,[0]])
-
-    CPKM = ZMat([CP2RP(q,V,t,CP=False,Vto=V)[0] for q in PRKM])
-    ## CPKM is modulo N - change to mod 2N
-    CPKM, rowops = How(CPKM,2*N)
-
-    if debug:
-        print('V')
-        for i in range(len(V)):
-            print(i,'=>',bin2Set(V[i]))
-        
-        print('Embedded CSS Code')
-        print_SXLX(SX_V,LX_V,SZ_V,LZ_V,True)
-
-        print('Target - RP Form',ZMat2str(qPR))
-        print(CP2Str(qPR,V,N,False)[1])
-        print('Target - CP Form',ZMat2str(qCP) )
-        print(CP2Str(qCP,V,N,True)[1])
-
-        # print("\nLogical Identites - RP Form")
-        # print(ZmatPrint(PRKM))
-
-        # print("\nLogical Identites - CP Form")
-        # print(ZmatPrint(CPKM))
-
-        print('CPIsLO',CP2Str(qPR,V,N,False)[1],CPIsLO(qPR,SX,PRKM,V,N,CP=False))               
-        print('LI test for PRKM')
-        for q in PRKM:
-            print('Testing',CP2Str(q,V,N, False)[1],CPIsLO(q,SXLX,PRKM,V,N, False))
-
-        print('LI test for CPKM')
-        for q in CPKM:
-            print('Testing',CP2Str(q,V,N)[1],CPIsLO(q,SXLX,CPKM,V,N))
-
-        if k < 10:
-            print('Logical Operator Test')
-            print('Testing',CP2Str(qCP,V,N)[1],CPIsLO(qCP,SX,CPKM,V,N))
-            codeword_test(qCP,Eq,SX,LX,V,N)
-
-    sol = findDepth1(CPKM,qCP,V,N)
-    # print(sol)
-    if sol is not False: 
-        print("\nDepth-One Solution Found")
-        qCP =  sol
-        cList = CP2Partition(qCP,V)
-        print('Qubit Partition', cList)
-        
-        print('Logical Operator:', CP2Str(qCP, V, N)[1])
-        print('LO Test:',CPIsLO(qCP,SX,CPKM,V,N))
-        if len(LX) < 10:
-            print('Testing Action on Codewords')
-            codeword_test(qCP,Eq,SX,LX,V,N)
-        return cList
-    else:
-        print("\nNo Depth-One Solution Found")
-
-
-## take LR configuration
-## LR[i] is the list of indices j with LR[j] = i
 def LR2ix(LR):
+    ## return ix: a list of 3 lists. ix[i] is the list of indices j with LR[j] = i
     ix = [[] for i in range(3)]
     for i in range(len(LR)):
         ix[LR[i]].append(i)
     return ix
 
-def CPACT(e,z,V,N):   
+def CPACT(e,qVec,V,N): 
+    ## return action of CP operator \prod_{v in V} CP_N(qVec[v],v)  on comp basis elt |e>
     xrow = np.abs(uGEV(e,V))
-    # CP_scale = 1 << np.sum(V,axis=-1)
-    return np.sum(xrow * z ) % (2*N)
+    return np.sum(xrow * qVec ) % (2*N)
     
-## return indices to restore original col order
+
 def ixRev(ix):
+    ## return indices to restore original column order
+    ## input: ix - permutation of [0..n-1]
+    ## output: ixR such that ix[ixR] = [0..n-1]
     ixR = [0] * len(ix)
     for i in range(len(ix)):
         ixR[ix[i]] = i 
     return ixR
 
-## return list of col indices which overlap with Erm[m]
 def FDoverlap(j, V):
-    ## multiply Erm by Erm[m] and sum cols
-    ## yields number of places supp of col overlaps with supp of Erm[m]
+    '''return list of indices i in [0..|V|-1] not equal to j such that wt(V[i]V[j]) > 0'''
     E = np.sum(V[j] * V,axis=1)
     return [i for i in range(len(V)) if E[i] > 0 and i != j]
 
-## Given an embedded code, find depth 1 logical operator
+
 def findDepth1(KM,qVec,V,N):
+    '''Run Depth-one algorithm. 
+    Inputs:
+    KM: Z_2N matrix representing logical identities and operators of the embedded code
+    qVec: Z_2N vector representing a logical operator we want to find a depth-one implementation for
+    V: Embedding matrix - tells us which physical qubits are involved in each CP/RP operator
+    N: required precision
+    Output:
+    False if no depth one operator found, otherwise z-component of the embedded operator'''
     ## set of configurations already considered
     visited = set()
     ## configurations to test - initial config is all in centre
@@ -1146,15 +1252,17 @@ def findDepth1(KM,qVec,V,N):
 ## Generate Codes with Desired Logical Operators
 ############################################################
 
-## kron of a list of matrices
+
 def kronList(AList):
+    '''Return kronecker product of a list of matrices AList'''
     temp = AList[0]
     for i in range(1,len(AList)):
         temp = np.kron(temp,AList[i])
     return temp
 
-## Logical Z for k dimensional toric code of distance d
+
 def zMatrix(k,d):
+    '''Return Z-Logicals for k dimensional toric code of distance d'''
     Ik = ZMatI(k)
     rd = ZMat([0] * (d-1) + [1])
     ad = ZMat([1] * d)
@@ -1165,8 +1273,13 @@ def zMatrix(k,d):
         temp.append(kronList(kList))
     return np.vstack(temp)
 
-## search for a code with logical operator target using LZ of weight d
-def codeSearch(target, d, debug=False):
+def CSSwithLO(target,d):
+    '''Return a CSS code with an implementation of a desired logical CP operator using single-qubit phase gates.
+    Inputs:
+    target: string representing the target CP operator
+    d: distance of the toric code the resulting code is based on.
+    Output:
+    SX, LX and Clifford hierarchy level'''
     (x,q1), V1, t = Str2CP(target)
     N = 1 << t
     k = len(x)
@@ -1188,12 +1301,20 @@ def codeSearch(target, d, debug=False):
         for j in range(d-1):
             y = SXLX[d*i + j]
             SX.append(np.mod(x+y,2))
-    ## make a CSS code
-    Eq,SX,LX,SZ,LZ = CSSCode(SX,LX)
+    return SX, LX, t
 
+def codeSearch(target, d, debug=False):
+    '''Run the algorithm for generating a CSS code with transversal implementation of a desired logical operator and print output
+    Inputs:
+    target: string representing the target CP operator
+    d: distance of the toric code the resulting code is based on.
+    debug: if true, verbose output'''
+    ## make a CSS code
+    SX, LX, t = CSSwithLO(target,d)
+    Eq,SX,LX,SZ,LZ = CSSCode(SX,LX)
+    N = 1 << t
     r, n = np.shape(SX)
     compact = n > 15
-
     if debug:
         print('Embedded Code Checks and Logicals')
         print_SXLX(SX,LX,SZ,LZ,compact)
@@ -1203,7 +1324,7 @@ def codeSearch(target, d, debug=False):
 
         ## Algorithm 1 - search
         print(f'\nKernel Method - Search for {target}')
-        ker_search2(target,Eq,LX,SX,N,compact)
+        ker_search(target,Eq,LX,SX,N,compact)
 
         print('Qubits in Code:',n)
         ## Z distance
@@ -1220,3 +1341,40 @@ def codeSearch(target, d, debug=False):
         z,pVec = ZDistance(SZ,LZ,LX)
         x,pVec = ZDistance(SX,LX,LZ)
         print(f'{d} {n} {np.sum(x)} {np.sum(z)}')
+
+
+# def CSSwithLO2(target,d):
+#     (x,q1), V1, t = Str2CP(target)
+#     k = len(x)
+#     n = k * d
+#     ## identity on k qubits
+#     Ik = ZMatI(k)
+#     ## repetition code on d qubits
+#     Rd = repCode(d)
+#     SX = np.kron(Ik,Rd)
+#     ## Logical X operators
+#     Ld = ZMat2D([0] * (k-1) + [1])
+#     LX = np.kron(Ik,Ld)
+#     V = Mnt(n,t)
+#     SX = matMul(SX,V.T,2)
+#     LX = matMul(LX,V.T,2)
+#     return SX, LX, t
+
+# def codeSearch2(target, d, debug=False):
+#     ## make a CSS code
+#     SX, LX, t = CSSwithLO(target,d)
+#     Eq,SX,LX,SZ,LZ = CSSCode(SX,LX)
+#     N = 1 << t
+#     K_M = LIAlgorithm(Eq,LX,SX,N,compact=True,debug=debug)
+#     zList = DiagLOComm(SX,K_M,N)
+#     ## find level t operators
+#     ix = [min(np.gcd(z,N))==1 for z in zList]
+#     zList = zList[ix]
+#     print(f'level {t} operators')
+#     print(ZmatPrint(zList))
+#     w = np.sum(zList,axis=0)
+#     ix = w > 0
+#     SX = SX[:,ix]
+#     LX = LX[:,ix]
+#     Eq,SX,LX,SZ,LZ = CSSCode(SX,LX)
+#     ker_search(target,Eq,LX,SX,t,debug=True)

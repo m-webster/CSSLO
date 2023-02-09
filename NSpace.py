@@ -5,9 +5,8 @@ from common import *
 #### General GCD/Modulo Arithmetic ####
 #######################################
 
-## return c such that a - bc < a
-## or None if b == 0
 def Quo(a,b,N,check=False):
+    '''Return c such that a - bc < a or None if b == 0'''
     if check is None:
         return True
     if check is not False:
@@ -19,9 +18,9 @@ def Quo(a,b,N,check=False):
         return None
     return (a // b) % N
 
-## return c such that bc = a mod N 
-## or None if no such c exists
+
 def Div(a,b,N,check=False):
+    '''Return c such that bc = a mod N or None if no such c exists'''
     a = a % N
     b = b % N
     if check is None:
@@ -42,10 +41,9 @@ def Div(a,b,N,check=False):
         return a // b % N
     return None
 
-## return g,s,t,u,v such that:
-## as + bt = g where g = gcd(a,b)
-## au + bv = 0
+
 def Gcdex(a,b,N,check=False):
+    '''Extended GCD: Return g,s,t,u,v such that: as + bt = g where g = gcd(a,b); AND au + bv = 0'''
     if check is None:
         return True
     if check is not False:
@@ -97,10 +95,9 @@ def Gcdex(a,b,N,check=False):
 #         t = t + N
 #     return t
 
-## return u such that a u mod N = 0 
-## return 0 if a is a unit
-## return 1 if a == 0
+
 def Ann(a,N,check=False):
+    '''Annihilator of a modulo N: Return u such that a u mod N = 0. Return 0 if a is a unit. Return 1 if a == 0'''
     if check is None:
         return True
     if check is not False:
@@ -134,6 +131,7 @@ def Split(a,N,check=False):
     return N // np.gcd(a,N)
 
 def Factorize(a):
+    '''Factorise integer a>0.'''
     f = []
     m = []
     for x in range(2,np.int(np.ceil(a ** 0.5)+1)):
@@ -147,6 +145,7 @@ def Factorize(a):
     return f,m
 
 def Factors(a):
+    '''List of factors of a.'''
     f = set()
     for x in range(2,np.int(np.ceil(a ** 0.5)+1)):
         if a % x == 0:
@@ -155,9 +154,9 @@ def Factors(a):
     f.add(a)
     return sorted(f)
 
-## generate list of prime numbers <= a
-## used for checking Split function
+
 def PrimeNumbers(a):
+    '''Generate list of prime numbers <= a. Used for checking Split function'''
     if a < 2:
         return []
     f = [2]
@@ -174,6 +173,7 @@ def PrimeNumbers(a):
     return f
 
 def Stab(a,b,N,check=False):
+    ### return c such that GCD(a + bc, N) = GCD(a,b) modulo N
     if check is not False:
         return (np.gcd(a + check * b,N) - np.gcd.reduce([a,b,N])) % N == 0
     a = a % N
@@ -198,8 +198,9 @@ def Stab(a,b,N,check=False):
 #         temp = (temp + c[i] * a[i]) % N
 #     return c
 
-## return a unit c such that a c mod N is gcd(a,N)
+
 def Unit(a,N,check=False):
+    '''Return a unit c such that ac = gcd(a,N)  mod N.'''
     if check is None:
         return True
     if check is not False:
@@ -209,11 +210,9 @@ def Unit(a,N,check=False):
         return 1
     g = np.gcd(a,N)
     s = Div(g,a,N)
-# print('g,s',g,s)
     if g == 1:
         return s
     d = Stab(s,N//g,N)
-# print('d,N //g',d,N //g)
     c = (s + d * N // g) % N
     return c
 
@@ -222,6 +221,7 @@ def Unit(a,N,check=False):
 #######################################
 
 def BinaryTest(f,N=False):
+    '''Test binary Ring function f.'''
     if N is False:
         N = np.random.randint(2,20)
     print('Testing',f,'N=',N)
@@ -240,6 +240,7 @@ def BinaryTest(f,N=False):
         print("All OK")
         
 def UnaryTest(f,N=False):
+    '''Test unary Ring function f.'''
     if N is False:
         N = np.random.randint(2,20)
     print('Testing',f,'N=',N)
@@ -257,6 +258,7 @@ def UnaryTest(f,N=False):
         print("All OK")
 
 def TestRingOps(N=False):
+    '''Test all ring operations.'''
     if N is False:
         N = np.random.randint(2,20)
     Binaries = [Quo,Div,Gcdex,Stab]
@@ -267,12 +269,11 @@ def TestRingOps(N=False):
         UnaryTest(f,N)    
 
 #######################################
-####   Howellization of Matrixes   ####
+####   Howell Matrix Form          ####
 #######################################
 
-
-## perform row operation specified by opData on matrix A
 def doOperation(A,opData,N=1):
+    '''Perform row operation specified by opData on matrix A'''
     op, data = opData
 
     ## swap rows A[j], A[m]
@@ -314,9 +315,8 @@ def doOperation(A,opData,N=1):
     #     A[m] = np.mod(c * A[j],N)
     return A
 
-
-## check that all rows of A are in <H>
 def CheckHow(A,H,N):
+     '''Check that all rows of A are in span of H mod N'''
      for a in A:
           r, u = matResidual(H,a,N)
           if np.sum(r) > 0:
@@ -324,8 +324,8 @@ def CheckHow(A,H,N):
                return False
      return True
 
-## check function GetUK
 def CheckUK(A,H,U,K,N):
+     '''Check function GetUK'''
      if len(A) > 0:
           ## Check that U @ A = H
           if not np.all(np.isclose(matMul(U,A,N),H)):
@@ -344,10 +344,9 @@ def CheckUK(A,H,U,K,N):
                return False
      return True
 
-## get U, K such that:
-## H = U@A
-## 0 = K@A
+
 def GetUK(A,H,rowops,N):
+     '''Calculate U, K such that: H = U@A AND 0 = K@A'''
      m = len(A)
      U = ZMatI(m)
      U = doOperations(U,rowops,N)
@@ -359,52 +358,43 @@ def GetUK(A,H,rowops,N):
      return U,K
 
 def getKer(A,N):
-    # startTimer()
+    '''Return kernel of A modulo N.'''
     A = ZMat(A)
     H, rowops = How(A.T,N)
     U,K = GetUK(A.T,H,rowops,N)
     K,rowops = How(K,N)
-    # print(func_name(),elapsedTime(),deep_getsizeof(K))
     return K
-    # At = np.transpose(A)
-    # nsp = NSpace(At,N)
-    # return nsp.getVal('Kt')
 
 def prepHowRes(A,z):
+    '''Convert A into form 1|0//0|A for use in HowRes function.'''
     B = np.vstack([z,A])
     B = np.hstack([ZMatZeros((len(B),1)),B])
     B[0,0] = 1 
     return B
 
-## residue of z with respect to A modulo N
 def HowRes(A,z,N,retro=False):
-    # print('np.shape(A)',np.shape(A))
-    # print('np.shape(z)',np.shape(z))
+    '''Howell residue of z with respect to A modulo N. If retro=True, return rowops.'''
     B = prepHowRes(A,z)
-    # print(func_name(), 'B')
-    # print(ZmatPrint(B))
     H,rowops = How(B,N)
-    # print('H')
-    # print(ZmatPrint(H))
     if retro:
         return H[0,1:], rowops
     return H[0,1:]    
 
 def doOperations(A,rowops,N):
+    '''Perform a series of row operations rowops on A modulo N'''
     A = [a for a in A]
     for opData in rowops:
         A = doOperation(A, opData,N)
     return ZMat(A)
 
-## returns Howell basis of A mod N plus row operations to convert to this form
+
 def How(A,N,reduced=True):
+     '''Return Howell basis of A mod N plus row operations to convert to this form'''
      rowops = []
      if len(A) == 0:
          return A, rowops
-    #  B = np.copy(A)
      B = [a for a in A]
      m,n = np.shape(A)
-    #  print(func_name(),'m,n',m,n)
      r = 0
      ## c is the column of B we are currently looking at
      for c in range(n):
@@ -446,35 +436,33 @@ def How(A,N,reduced=True):
                     B = doOperation(B,rowops[-1],N)  
                     m = len(B)
                r +=1
-    #  H = RemoveZeroRows(B) 
-    #  print(func_name(),len(B))
      H = RemoveZeroRows(ZMat(B,n))
      return H,rowops
 
 
 ## returns Strong lower triangular form of binary matrix 
-def Triag(A):
-    m,n = np.shape(A)
-    if m == 0:
-        return A
-    H = ZMat([a for a in A])
-    comp = []
-    K = ZMatI(n)
-    for j in range(n):
-        i=0
-        while (i < m and H[i][j] == 0):
-            i +=1
-        if i < m:
-            comp.append(j)
-            for l in range(j+1, n):
-                if H[i][l] != 0:
-                    H[:,l] = np.mod(H[:,j] + H[:,l],2)
-                    K[:,l] = np.mod(K[:,j] + K[:,l],2)
-    pivot = sorted(set(range(n)) - set(comp))
-    H = H[:,comp]
-    K = K[:,pivot]
-    F = ZMatI(n)[:,pivot]
-    return H, K, F
+# def Triag(A):
+#     m,n = np.shape(A)
+#     if m == 0:
+#         return A
+#     H = ZMat([a for a in A])
+#     comp = []
+#     K = ZMatI(n)
+#     for j in range(n):
+#         i=0
+#         while (i < m and H[i][j] == 0):
+#             i +=1
+#         if i < m:
+#             comp.append(j)
+#             for l in range(j+1, n):
+#                 if H[i][l] != 0:
+#                     H[:,l] = np.mod(H[:,j] + H[:,l],2)
+#                     K[:,l] = np.mod(K[:,j] + K[:,l],2)
+#     pivot = sorted(set(range(n)) - set(comp))
+#     H = H[:,comp]
+#     K = K[:,pivot]
+#     F = ZMatI(n)[:,pivot]
+#     return H, K, F
 
 
 #######################################
@@ -486,6 +474,7 @@ def Triag(A):
 class NSpace:
 
     def __init__(self,A,N):
+        '''Initiate NSpace object - A is the matrix modulo N'''
         self.A = ZMat2D(A)
         self.At = np.transpose(A)
         self.N = N
@@ -494,6 +483,7 @@ class NSpace:
         self.getVal('H')   
 
     def getVal(self,a):
+        '''Check if a matrix form has been calculated. If not, calculate and store it. Return the required value.'''
         if hasattr(self, a):
             return getattr(self,a)
         if a == 'H':
@@ -540,7 +530,6 @@ class NSpace:
         v = matMul(self.A,c,self.N)
         return rowVector(matAdd(b, -v,self.N))
 
-
 def matResidual(A,b,N,check=False):
     ## take vector b
     ## return resdidual after subtracting Howell basis vectors
@@ -549,17 +538,18 @@ def matResidual(A,b,N,check=False):
     # print(func_name(),A)
     b = rowVector(b)
     A = ZMat2D(A)
+    m,n = np.shape(A)
     if check is not False:
         x, o = check
         return matEqual(b,matLinearComb(A,x,N,o))
-    b = makeList(np.mod(b,N))
+    b = rowVector(np.mod(b,N))[0]
     if len(A) == 0 or len(A[0]) == 0:
         return b,ZMat2D([])
     temp = []
     for i in range(len(A)):
-        ix = Highbit(A[i])
+        ix = leadingIndex(A[i])
         c = 0
-        if ix >= 0:
+        if ix < n:
             d = Quo(b[ix],A[i][ix],N)
             c = d if d else 0
         temp.append(c)
@@ -622,10 +612,11 @@ def matLinearComb(A,b,N,o=[0],check=False):
 ####          Intersection of Spans           ####
 ##################################################
 
-## Calculate intersection of two affine spaces
-## U1 = o1 + <A1> mod N
-## U2 = o2 + <A2> mod N
+
 def affineIntersection(A1,o1,A2,o2,N,C=False):
+    '''Calculate intersection of two affine spaces
+    U1 = o1 + <A1> mod N
+    U2 = o2 + <A2> mod N'''
     if C is not False:
         A,o = C
         tocheck = np.mod(o + A,N)
@@ -658,11 +649,12 @@ def affineIntersection(A1,o1,A2,o2,N,C=False):
     A = nsIntersection([A1,A2],N)
     return A,o
 
-## Calculate intersection of two affine spaces
-## U1 = o1 + <A1> mod N
-## U2 = o2 + <A2> mod N
-## return o which is in both U1 and U2 or False
+
 def affineIntercept(A1,o1,A2,o2,N,C=False):
+    '''Calculate intersection of two affine spaces
+    U1 = o1 + <A1> mod N
+    U2 = o2 + <A2> mod N
+    return o which is in both U1 and U2 or False'''
     nsp = NSpace(np.vstack([A1,A2]),N)
     v = np.mod(o1-o2,N)
     b,u = matResidual(nsp.H,v,N)
@@ -675,8 +667,9 @@ def affineIntercept(A1,o1,A2,o2,N,C=False):
     o = np.mod(b + o2,N)
     return o
 
-## intersection of multiple N spaces
+
 def nsIntersection(Alist,N):
+    '''Intersection of multiple rowspans AList modulo N.'''
     if len(Alist) == 0:
         return False
     A = Alist[0]
@@ -689,8 +682,9 @@ def nsIntersection(Alist,N):
         A = nsp.H
     return A
 
-## union of multiple N spaces
+
 def nsUnion(Alist,N):
+    '''Union of multiple rowspaces Alist modulo N'''
     if len(Alist) == 0:
         return False
     nsp = NSpace(np.vstack(Alist),N) 
