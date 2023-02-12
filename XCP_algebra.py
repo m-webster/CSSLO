@@ -6,26 +6,23 @@ from common import *
 ## Algebra of CP operators            ##
 ########################################
 
-def XCPMul(A, B, V, N,CP=True):
-    '''multiply CP operators A, B uses CPX'''
-    x1, z1 = A 
-    x2, z2 = B 
-    c = CPX(x2,z1,V,N,CP)
-    x = np.mod(x1 + x2, 2)
-    z = np.mod(c + z2, 2 * N)
-    return (x, z)
-
-
-def CPComm(z,x,V,N,CP=True):
-    '''Commutator of CP_N,V(z) and x'''
-    ## [[X,CP(z)]] = X CP(z) X CP(-z) = X X CPX(x,z) CP(-z) = CPX(x,z) CP(-z)
-    c = CPX(x,z,V,N,CP)
-    return np.mod(c - z, 2*N)
-
-
+def CPlevel(q,V,N,CP=True):
+    '''Calculate Clifford level of CP or RP operator CP^V_N(q)'''
+    q,V = CPNonZero(q,V)
+    t = log2int(N)
+    if t is None:
+        return t
+    den = (2 * N) // np.gcd(q, 2 * N)
+    if CP:
+        mint = [log2int(den[i]) + np.sum(V[i]) - 1 for i in range(len(q))]
+    else:
+        mint = [log2int(den[i]) for i in range(len(q))]
+    return np.max(mint)
+    
 def CPX(x,z,V,N,CP=True):
-    '''Fundamental commutation relation for CP operators
-    calculate diagonal component of CP(z) X'''
+    '''Fundamental commutation relation for CP operators.
+    calculate diagonal component of CP^V_N(z) XP_2(0|x|0).
+    If CP=False, use method for RP operators'''
     if not CP:
         return RPX(x,z,V,N)
     z = ZMat(z.copy())
@@ -41,15 +38,9 @@ def CPX(x,z,V,N,CP=True):
     return z
 
 
-def tupleDict(V):
-    '''Convert V to a dictionary indexed by tuple(v)'''
-    m,n = np.shape(V)
-    return {tuple(V[i]): i for i in range(m)}
-
-
 def RPX(x,q,V,N):
-    '''Fundamental commutation relation for RP operators
-    calculate diagonal component of RP(q,V) X'''
+    '''Fundamental commutation relation for CP operators.
+    calculate diagonal component of RP^V_N(q) XP_2(0|x|0).'''
     q1 = q 
     p1 = 0
     ## calculate q-vec and phase adj for each X_i
@@ -65,12 +56,36 @@ def RPX(x,q,V,N):
         q1[j] = np.mod(q1[j] + p1, 2*N)
     return q1
 
+def CPComm(z,x,V,N,CP=True):
+    '''Commutator of CP^V_N(z) and x.
+    If CP=False, use RP method.'''
+    ## [[X,CP(z)]] = X CP(z) X CP(-z) = X X CPX(x,z) CP(-z) = CPX(x,z) CP(-z)
+    c = CPX(x,z,V,N,CP)
+    return np.mod(c - z, 2*N)
+
+
+def XCPMul(A, B, V, N,CP=True):
+    '''multiply two XCP operators A = (x1, z1) of form XP_2(0|x1|0)CP^V_N(z1).'''
+    x1, z1 = A 
+    x2, z2 = B 
+    c = CPX(x2,z1,V,N,CP)
+    x = np.mod(x1 + x2, 2)
+    z = np.mod(c + z2, 2 * N)
+    return (x, z)
+
+#####################################
+## Helper functions for CP and RP Operators
+#####################################
+
+def tupleDict(V):
+    '''Convert V to a dictionary indexed by tuple(v)'''
+    m,n = np.shape(V)
+    return {tuple(V[i]): i for i in range(m)}
 
 def pIndex(V):
     '''Find phase component - corresponds to all zero vector, usually in last position'''
     j = np.where(np.sum(V,axis=-1) == 0)
     return j[0] if len(j) == 1 else None
-
 
 def CPSetV(q1,V1,V2):
     '''Take CP(q1,V1) and convert to CP(q2,V2)'''
@@ -84,7 +99,6 @@ def CPSetV(q1,V1,V2):
         q2[vDict[v]] = q 
     return q2
 
-
 def CPNonZero(q1,V1):
     '''Eliminate rows v from V1 and cols from q1 where q1[v] is zero'''
     q1 = ZMat(q1)
@@ -93,11 +107,9 @@ def CPNonZero(q1,V1):
     return q1[ix],V1[ix]
 
 
-
 ########################################
-## String representation of operators ##
+## String representation of CP/RP operators 
 ########################################
-
 
 def x2Str(x):
     '''String rep of X component'''
@@ -105,7 +117,6 @@ def x2Str(x):
         return ""
     xStr = [f'[{i}]' for i in bin2Set(x)]
     return f' X{"".join(xStr)}'
-
 
 def z2Str(z,N,phase=False):
     '''Represent Z component as string'''
@@ -132,10 +143,9 @@ def z2Str(z,N,phase=False):
         zStr = " I"    
     return pStr + zStr
 
-
-
 def CP2Str(qVec,V,N,CP=True):
-    '''String representation of CP operator'''
+    '''String representation of CP operator CP^V_N(qVec).
+    If CP=False use RP method.'''
     qVec, V = CPNonZero(qVec,V)
     opSym = 'C' if CP else 'R'
     syms = {1:"I",2:'Z',4:'S',8:'T',16:'U'}
@@ -154,7 +164,6 @@ def CP2Str(qVec,V,N,CP=True):
         i -= 1
         w,den,num,v = temp[i]
         w = n-w
-        # print(" w,d,n,v ", w,d,n,v )
         if w == 0:
             pStr = f'w{num}/{den}' if den > 1 else ""
         else:
@@ -170,22 +179,22 @@ def CP2Str(qVec,V,N,CP=True):
     return pStr, zStr
 
 
-def XCP2Str(a,V,N):
-    '''String rep of operator with X and CP components'''
-    x,qVec = a
+def XCP2Str(A,V,N):
+    '''String rep of operator with X and CP components.
+    A= (x,qVec) - operator is XP_2(0|x|0)CP^V_N(qVec)'''
+    x,qVec = A
     pStr, zStr = CP2Str(qVec,V,N)
     return pStr + x2Str(x) + zStr
 
 
 def Str2CP(mystr,n=None,t=None,CP=True):
-    '''Convert string to XCP operator'''
+    '''Convert string to XCP operator.
+    Returns (x, qVec), V, t'''
     mystr = mystr.upper()
     repDict = {' ':'','C':'','R':'',']':'*','[':'*',',':' '}
     for a,b in repDict.items():
         mystr = mystr.replace(a,b)
-    # print('mystr',mystr)
     mystr = mystr.split('*')
-    # print('mystr',mystr)
     xList,CPList,minn,mint = [],[],[],[]
     symDict = {'X':1,'Z':1, 'S':2,'T':3,'U':4,'W':0}
     for a in mystr:
@@ -238,7 +247,6 @@ def Str2CP(mystr,n=None,t=None,CP=True):
 ## Duality between CP and RP
 ###################################################
 
-
 def uLEV(u,V):
     '''Return binary vector b[v] = 1 iff u <= v'''
     ix = bin2Set(u)
@@ -284,9 +292,7 @@ def CP2RP(q1,V1,t,CP=True,Vto=None):
     if j is not None:
         q2[j] = q1[j]
     if Vto is None:
-        # print(func_name(),'len(V2) before',len(V2))
         q2,V2 = CPNonZero(q2,V2)
-    # print('len(V2)',len(V2))
     return (q2,V2)
 
 
@@ -307,9 +313,8 @@ def MntSubsets(S,t,mink=1):
 
 
 def Mnt_partition(cList,n,t,mink=1):
-    '''Same as Mnt - but this time using a partition
-    cList is a list of partitions
-    max weight of vector in Mrm is t'''
+    '''Return a set of binary vectors of length n and weight between mink and t
+    including subsets of cycles in cList. cList is a permutation in cycle form. '''
     temp = set()
     for c in cList:
         temp.update(MntSubsets(c,t,mink))
@@ -319,23 +324,9 @@ def Mnt_partition(cList,n,t,mink=1):
 
 
 def CP2Partition(qList,V):
-    '''Partition from non-zero elements of qList'''
+    '''Return partition in cycle form from rows of V corresponding to non-zero elements of qList'''
     m,n = np.shape(V)
     qList, V = CPNonZero(qList, V)
     addSupp = bin2Set(1 - np.sum(V,axis=0))
     return [bin2Set(v) for q,v in zip(qList,V)] + [[i] for i in addSupp]
 
-
-def CPlevel(q,V,N,CP=True):
-    '''Calculate Clifford level of CP or RP operator'''
-    q,V = CPNonZero(q,V)
-    t = log2int(N)
-    if t is None:
-        return t
-    den = (2 * N) // np.gcd(q, 2 * N)
-    if CP:
-        mint = [log2int(den[i]) + np.sum(V[i]) - 1 for i in range(len(q))]
-    else:
-        mint = [log2int(den[i]) for i in range(len(q))]
-    return np.max(mint)
-    

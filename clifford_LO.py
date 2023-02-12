@@ -79,18 +79,14 @@ def CSSgetLX(SX, SZ):
     LX, rowops = How(LX,2)
     return LX
 	
-## take logical X and Z
-## arrange so that they are paired and have minimal overlap
 def LXZCanonical(LX, LZ):
     """Modify LX, LZ such that LX LZ^T = I if possible."""
     LX, LZ = LXZDiag(LX,LZ)
     LZ, LX  = LXZDiag(LZ,LX)
     return LX, LZ
 
-## helper for LXZCanonical
-## updates LX
 def LXZDiag(LX,LZ):
-    """Convert LX to a form with minimal overlap with LZ."""
+    """Convert LX to a form with minimal overlap with LZ. helper for LXZCanonical"""
     A = matMul(LX, LZ.T,2)
     A, rowops = How(A,2)
     LX = doOperations(LX,rowops,2)[:len(A)]
@@ -99,7 +95,6 @@ def LXZDiag(LX,LZ):
 #########################################
 ## Create CSS codes of various types
 #########################################
-
 
 ## hypercube code of Kubica, Earl Campbell in r dimensions on 2^r qubits
 def Hypercube(r):
@@ -253,25 +248,6 @@ def parseTriPoly(poly):
                 inPar = 0
     return temp
 
-def tOrthogonal(SX):
-    '''Return largest t for which the weight of the product of any t rows of SX is even.'''
-    t = 0
-    r, n = np.shape(SX)
-    while t < r:
-        ## all combinations of t+1 rows
-        for ix in iter.combinations(range(r),t+1):
-            T = np.prod(SX[ix,:],axis=0)
-            if np.sum(T) % 2 == 1:
-                return t 
-        t += 1
-    return t
-
-def nkdReport(SX,LX,SZ,LZ):
-    '''Report [[n,k,dX,dZ]] for CSS code specified by SX,LX,SZ,LZ.'''
-    k,n = np.shape(LX)
-    Zop, Zact = ZDistance(SZ,LZ,LX)
-    Xop, Xact = ZDistance(SX,LX,LZ)
-    return(f'n:{n} k: {k} dX: {sum(Xop)} dZ:{sum(Zop)}')
 
 
 ############################################################
@@ -368,7 +344,6 @@ def SHPC_partition(T):
     m,n = np.shape(H)
     temp = SHCP_labels(n,n,'L')
     temp.extend( SHCP_labels(m,m,'R'))
-    # print('labels',temp)
     lDict = dict()
     for i in range(len(temp)):
         a,b,s = temp[i]
@@ -536,36 +511,27 @@ def Orbit2dist(Eq,SX,t=None,return_u=False):
 ## Code Analysis Tools
 #############################################################
 
-## generate codewords
-def codewords(Eq,SX,LX):
-    '''Return canonical codewords LI={v}, CW={sum_u (q + uSX + vLX)}'''
-    r,n = np.shape(SX)
-    zvec = ZMatZeros((1,n))
-    OSX = Orbit2dist(zvec, SX)
-    LI, CW = [],[]
-    for m,v in Orbit2distIter(Eq,LX,return_u=True):
-        S = np.mod(m + OSX,2)
-        LI.append(v)
-        CW.append(S)
-    return LI, CW
 
-## print codewords
-def state2str(S):
-    '''Print a state corresponding to a binary matrix S in the form \sum_{x \in S}|x>'''
-    return "+".join([ket(x) for x in S])
+def nkdReport(SX,LX,SZ,LZ):
+    '''Report [[n,k,dX,dZ]] for CSS code specified by SX,LX,SZ,LZ.'''
+    k,n = np.shape(LX)
+    Zop, Zact = ZDistance(SZ,LZ,LX)
+    Xop, Xact = ZDistance(SX,LX,LZ)
+    return(f'n:{n} k: {k} dX: {sum(Xop)} dZ:{sum(Zop)}')
 
-## Display |x> for states
-def ket(x):
-    '''Display |x> for states.'''
-    return f'|{ZMat2str(x)}>'
+def tOrthogonal(SX):
+    '''Return largest t for which the weight of the product of any t rows of SX is even.'''
+    t = 0
+    r, n = np.shape(SX)
+    while t < r:
+        ## all combinations of t+1 rows
+        for ix in iter.combinations(range(r),t+1):
+            T = np.prod(SX[ix,:],axis=0)
+            if np.sum(T) % 2 == 1:
+                return t 
+        t += 1
+    return t
 
-
-def print_codewords(Eq,SX,LX):
-    '''Print the canonical codwords of a CSS code defined by X-checks SX and X-logicals LX'''
-    V, CW = codewords(Eq,SX,LX)
-    print('\nCodewords')
-    for i in range(len(V)):
-        print(f'{ket(V[i])} : {state2str(CW[i])}')
 
 def print_SXLX(SX,LX,SZ,LZ,compact=True):
     '''Print the X-checks, X-logicals, Z-checks, Z-logicals of a CSS code.
@@ -584,26 +550,40 @@ def print_SXLX(SX,LX,SZ,LZ,compact=True):
         print(z2Str(z,2) if compact else ZMat2str(z)) 
 
 
-def CPIsLO(qVec,SX,K_M,V,N,CP=True):
-    '''Check if qVec is a logical operator by calculating the group commutator [[A, CP_V(qVec)]] for each A in SX
-    Inputs: 
-    qVec: Z_2N vector of length |V| representing a product of CP operators \prod_{v \in V}CP_N(qVec[v],v)
-    SX: binary matrix representing X-checks
-    K_M: Z_2N matrix representing phase and z-components of logical identities K_M = ker_{2N}(E_M)
-    V: binary matrix representing vector part of CP operators
-    N: precision of operators
-    CP: if True, treat operators as CP operators, otherwise RP operators'''
-    for x in SX: 
-        c = CPComm(qVec,x,V,N,CP)
-        c, u = matResidual(K_M,c,2*N)
-        c = np.mod(c,2*N) 
-        if np.sum(c) != 0:
-            print('x',x2Str(x))
-            print('qVec',CP2Str(qVec,V,N))
-            print('c',CP2Str(c,V,N))
-            return False
-    return True
 
+
+## generate codewords
+def codewords(Eq,SX,LX):
+    '''Return canonical codewords LI={v}, CW={sum_u (q + uSX + vLX)}'''
+    r,n = np.shape(SX)
+    zvec = ZMatZeros((1,n))
+    OSX = Orbit2dist(zvec, SX)
+    LI, CW = [],[]
+    for m,v in Orbit2distIter(Eq,LX,return_u=True):
+        S = np.mod(m + OSX,2)
+        LI.append(v)
+        CW.append(S)
+    return LI, CW
+
+def print_codewords(Eq,SX,LX):
+    '''Print the canonical codwords of a CSS code defined by X-checks SX and X-logicals LX'''
+    V, CW = codewords(Eq,SX,LX)
+    print('\nCodewords')
+    for i in range(len(V)):
+        print(f'{ket(V[i])} : {state2str(CW[i])}')
+
+def state2str(S):
+    '''Print a state corresponding to a binary matrix S in the form \sum_{x \in S}|x>'''
+    return "+".join([ket(x) for x in S])
+
+def ket(x):
+    '''Display |x> for states.'''
+    return f'|{ZMat2str(x)}>'
+
+
+##################################################
+## Action and Tests for Diagonal Logical Operators
+##################################################
 
 def isDiagLO(z,SX,K_M,N):
     '''Test if z is the Z-component of a logical XP operator.
@@ -625,6 +605,39 @@ def isDiagLO(z,SX,K_M,N):
             return False 
     return True
 
+def CPIsLO(qVec,SX,K_M,V,N,CP=True):
+    '''Check if qVec is a logical operator by calculating the group commutator [[A, CP_V(qVec)]] for each A in SX
+    Inputs: 
+    qVec: Z_2N vector of length |V| representing a product of CP operators \prod_{v \in V}CP_N(qVec[v],v)
+    SX: binary matrix representing X-checks
+    K_M: Z_2N matrix representing phase and z-components of logical identities K_M = ker_{2N}(E_M)
+    V: binary matrix representing vector part of CP operators
+    N: precision of operators
+    CP: if True, treat operators as CP operators, otherwise RP operators'''
+    for x in SX: 
+        c = CPComm(qVec,x,V,N,CP)
+        c, u = matResidual(K_M,c,2*N)
+        c = np.mod(c,2*N) 
+        if np.sum(c) != 0:
+            print('x',x2Str(x))
+            print('qVec',CP2Str(qVec,V,N))
+            print('c',CP2Str(c,V,N))
+            return False
+    return True
+
+def action2CP(vList,pVec,N):
+    '''Return controlled phase operator corresponding to phase vector pVec
+    pList a list of phases applied on each by an operator
+    return a CP operator'''
+    qVec = pVec.copy()
+    for i in range(len(qVec)):
+        v, p = vList[i],qVec[i]
+        if p > 0:
+            # ix = binInclusion(vList,v)
+            ix = uLEV(v,vList)
+            qVec = np.mod(qVec-p*ix,N)
+            qVec[i] = p
+    return qVec
 
 def DiagLOActions(LZ,LX,N):
     '''Return phase vector for each Z component in LZ.
@@ -643,19 +656,6 @@ def DiagLOActions(LZ,LX,N):
     return pVec,vList
 
 
-def action2CP(vList,pVec,N):
-    '''Return controlled phase operator corresponding to phase vector pVec
-    pList a list of phases applied on each by an operator
-    return a CP operator'''
-    qVec = pVec.copy()
-    for i in range(len(qVec)):
-        v, p = vList[i],qVec[i]
-        if p > 0:
-            # ix = binInclusion(vList,v)
-            ix = uLEV(v,vList)
-            qVec = np.mod(qVec-p*ix,N)
-            qVec[i] = p
-    return qVec
 
 def codeword_test(qVec,Eq,SX,LX,V,N):
     '''Print report on action of \prod_{v \in V}CP_N(qVec[v],v) operator on comp basis elts in each codeword.
@@ -841,7 +841,6 @@ def ker_method(Eq,LX,SX,N,compact=True):
         print(f'{i}: {ket(V[i])}')
 
 
-
 def ker_search(target,Eq,LX,SX,t,debug=False):
     '''Run kernel search algorithm.
     Inputs:
@@ -865,8 +864,6 @@ def ker_search(target,Eq,LX,SX,t,debug=False):
     vList = uvList[:,r:]
     pList = np.mod(-ZMat([[CPACT(v,qL,VL,N)] for v in vList] )//2,N)
     KL = getKer(np.hstack([pList, EL]),N)
-    # print(func_name(), 'KL')
-    # print(ZmatPrint(KL))
     ## check if top lhs is 1 - in this case, the LO has been found
     if KL[0,0] == 1:
         z = KL[0,1:]
@@ -1009,38 +1006,6 @@ def comm_method(Eq, SX, LX, N,compact=True,debug=True):
                 print(ZMat2str(z), ZMat2str(q), CP2Str(2*q,V,N)[1])     
     return zList, qList, V, K_M
 
-
-############################################################
-## Embedded Codes
-############################################################
-
-
-def canonical_logical_algorithm(q1,V1,LZ,t,Vto=None,debug=True):
-    '''Run canonical logical operator algorithm for given code and target CP operator
-    Inputs:
-    q1: q-vector for CP operator \prod_{v in V1}CP_N(q[v],v)
-    V1: support vectors for CP operator
-    LZ: binary matrix representing Z-logicals 
-    t: Clifford hierarchy level
-    Vto: if not None, return CP operators using vectors from Vto
-    debug: if True, verbose output'''
-    q1, V1 = CPNonZero(q1,V1)
-    N = 1 << t
-    ## q1, V1 are logical CP operators - convert to RP
-    q2, V2 = CP2RP(q1,V1,t,CP=True,Vto=None)
-    ## canonical logical in RP form
-    q3 = q2 
-    V3 = matMul(V2,LZ) 
-    ## convert to CP - this will ensure max support size of operators is t
-    q4,V4 = CP2RP(q3,V3,t,CP=False,Vto=Vto)
-
-    q5,V5 = CP2RP(q4,V4,t,CP=True,Vto=Vto)
-    if debug:
-        print('Canonical Logical Operator Implementation - CP')
-        print(CP2Str(q4,V4,N,CP=True)[1])
-        print('Canonical Logical Operator Implementation - RP')
-        print(CP2Str(q5,V5,N,CP=False)[1])
-    return (q4,V4), (q5,V5)
 
 
 ############################################################
@@ -1213,7 +1178,6 @@ def findDepth1(KM,qVec,V,N):
         ix = [a for r in LRix for a in r]
         ## z1 is the residual 
         qVec1 = HowRes(KM[:,ix], qVec[ix],2*N)
-        # print('qVec1',qVec1)
         ## s is the support of z1
         s = bin2Set(qVec1)
         m = min(s)
@@ -1247,6 +1211,39 @@ def findDepth1(KM,qVec,V,N):
                     todo.append(A)
     ## we have looked at all possible configurations with no valid solution
     return False
+
+
+############################################################
+## Canonical Logical Operators
+############################################################
+
+def canonical_logical_algorithm(q1,V1,LZ,t,Vto=None,debug=True):
+    '''Run canonical logical operator algorithm for given code and target CP operator
+    Inputs:
+    q1: q-vector for CP operator \prod_{v in V1}CP_N(q[v],v)
+    V1: support vectors for CP operator
+    LZ: binary matrix representing Z-logicals 
+    t: Clifford hierarchy level
+    Vto: if not None, return CP operators using vectors from Vto
+    debug: if True, verbose output'''
+    q1, V1 = CPNonZero(q1,V1)
+    N = 1 << t
+    ## q1, V1 are logical CP operators - convert to RP
+    q2, V2 = CP2RP(q1,V1,t,CP=True,Vto=None)
+    ## canonical logical in RP form
+    q3 = q2 
+    V3 = matMul(V2,LZ) 
+    ## convert to CP - this will ensure max support size of operators is t
+    q4,V4 = CP2RP(q3,V3,t,CP=False,Vto=Vto)
+
+    q5,V5 = CP2RP(q4,V4,t,CP=True,Vto=Vto)
+    if debug:
+        print('Canonical Logical Operator Implementation - CP')
+        print(CP2Str(q4,V4,N,CP=True)[1])
+        print('Canonical Logical Operator Implementation - RP')
+        print(CP2Str(q5,V5,N,CP=False)[1])
+    return (q4,V4), (q5,V5)
+
 
 ############################################################
 ## Generate Codes with Desired Logical Operators
@@ -1341,40 +1338,3 @@ def codeSearch(target, d, debug=False):
         z,pVec = ZDistance(SZ,LZ,LX)
         x,pVec = ZDistance(SX,LX,LZ)
         print(f'{d} {n} {np.sum(x)} {np.sum(z)}')
-
-
-# def CSSwithLO2(target,d):
-#     (x,q1), V1, t = Str2CP(target)
-#     k = len(x)
-#     n = k * d
-#     ## identity on k qubits
-#     Ik = ZMatI(k)
-#     ## repetition code on d qubits
-#     Rd = repCode(d)
-#     SX = np.kron(Ik,Rd)
-#     ## Logical X operators
-#     Ld = ZMat2D([0] * (k-1) + [1])
-#     LX = np.kron(Ik,Ld)
-#     V = Mnt(n,t)
-#     SX = matMul(SX,V.T,2)
-#     LX = matMul(LX,V.T,2)
-#     return SX, LX, t
-
-# def codeSearch2(target, d, debug=False):
-#     ## make a CSS code
-#     SX, LX, t = CSSwithLO(target,d)
-#     Eq,SX,LX,SZ,LZ = CSSCode(SX,LX)
-#     N = 1 << t
-#     K_M = LIAlgorithm(Eq,LX,SX,N,compact=True,debug=debug)
-#     zList = DiagLOComm(SX,K_M,N)
-#     ## find level t operators
-#     ix = [min(np.gcd(z,N))==1 for z in zList]
-#     zList = zList[ix]
-#     print(f'level {t} operators')
-#     print(ZmatPrint(zList))
-#     w = np.sum(zList,axis=0)
-#     ix = w > 0
-#     SX = SX[:,ix]
-#     LX = LX[:,ix]
-#     Eq,SX,LX,SZ,LZ = CSSCode(SX,LX)
-#     ker_search(target,Eq,LX,SX,t,debug=True)

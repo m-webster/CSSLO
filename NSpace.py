@@ -18,7 +18,6 @@ def Quo(a,b,N,check=False):
         return None
     return (a // b) % N
 
-
 def Div(a,b,N,check=False):
     '''Return c such that bc = a mod N or None if no such c exists'''
     a = a % N
@@ -40,7 +39,6 @@ def Div(a,b,N,check=False):
             r = a % b
         return a // b % N
     return None
-
 
 def Gcdex(a,b,N,check=False):
     '''Extended GCD: Return g,s,t,u,v such that: as + bt = g where g = gcd(a,b); AND au + bv = 0'''
@@ -71,31 +69,6 @@ def Gcdex(a,b,N,check=False):
     t = old_t
     return(g,s,t,u,v)
 
-# ## multiplicative inverse of a mod N
-# def inverse(a,N,check=False):
-#     if check is None:
-#         return True
-#     if check is not False:
-#         return a * check % N == 1
-#     a = a % N
-#     if a == 0:
-#         return None
-#     t = 0
-#     newt = 1
-#     r = N
-#     newr = a
-#     while newr > 0:
-#         quotient = r // newr
-#         (t, newt) = (newt, t - quotient * newt) 
-#         (r, newr) = (newr, r - quotient * newr)
-
-#     if r > 1:
-#         return None
-#     if t < 0:
-#         t = t + N
-#     return t
-
-
 def Ann(a,N,check=False):
     '''Annihilator of a modulo N: Return u such that a u mod N = 0. Return 0 if a is a unit. Return 1 if a == 0'''
     if check is None:
@@ -125,7 +98,6 @@ def Split(a,N,check=False):
     if a == 0:
         return 1
     r = np.int(np.ceil(np.log2(np.log2(N)))) if N > 1 else 1
-# print('N,r',N,r)
     for i in range(r):
         a = a*a % N
     return N // np.gcd(a,N)
@@ -181,23 +153,6 @@ def Stab(a,b,N,check=False):
     g = np.gcd.reduce([a,b,N])
     c = Split(a//g,N//g)
     return c % N
-
-# def Stabex(a,N,check=False):
-#     a = makeMat(a)
-#     if check is not False:
-#         check = makeMat(check)
-#         g = np.gcd.reduce(list(a) + [N])
-#         temp = np.sum(a * check) % N
-#         return g == np.gcd(temp,N)
-#     if len(a) == 0:
-#         return []
-#     c = [1]
-#     temp = a[0]
-#     for i in range(1,len(a)):
-#         c.append(Stab(temp,a[i],N))
-#         temp = (temp + c[i] * a[i]) % N
-#     return c
-
 
 def Unit(a,N,check=False):
     '''Return a unit c such that ac = gcd(a,N)  mod N.'''
@@ -275,7 +230,6 @@ def TestRingOps(N=False):
 def doOperation(A,opData,N=1):
     '''Perform row operation specified by opData on matrix A'''
     op, data = opData
-
     ## swap rows A[j], A[m]
     if op == 's':
         (j,m) = data
@@ -387,7 +341,6 @@ def doOperations(A,rowops,N):
         A = doOperation(A, opData,N)
     return ZMat(A)
 
-
 def How(A,N,reduced=True):
      '''Return Howell basis of A mod N plus row operations to convert to this form'''
      rowops = []
@@ -439,32 +392,6 @@ def How(A,N,reduced=True):
      H = RemoveZeroRows(ZMat(B,n))
      return H,rowops
 
-
-## returns Strong lower triangular form of binary matrix 
-# def Triag(A):
-#     m,n = np.shape(A)
-#     if m == 0:
-#         return A
-#     H = ZMat([a for a in A])
-#     comp = []
-#     K = ZMatI(n)
-#     for j in range(n):
-#         i=0
-#         while (i < m and H[i][j] == 0):
-#             i +=1
-#         if i < m:
-#             comp.append(j)
-#             for l in range(j+1, n):
-#                 if H[i][l] != 0:
-#                     H[:,l] = np.mod(H[:,j] + H[:,l],2)
-#                     K[:,l] = np.mod(K[:,j] + K[:,l],2)
-#     pivot = sorted(set(range(n)) - set(comp))
-#     H = H[:,comp]
-#     K = K[:,pivot]
-#     F = ZMatI(n)[:,pivot]
-#     return H, K, F
-
-
 #######################################
 ####    Linear Algebra Modulo N    ####
 #######################################
@@ -499,13 +426,14 @@ class NSpace:
         return getattr(self,a)
         
     def simplifyKer(self):
+        '''Convert kernel to Howell form.'''
         self.getVal('K')
         self.K,ops = How(self.K,self.N)
         if isZero(self.K):
             self.K = ZMatZeros((1,self.n))                
 
-    ## solve Ax = b modulo N
     def makeOffset(self,b,check=False):
+        '''solve Ax = b modulo N'''
         self.getVal('S')
         if check is not False:
             v,d = check
@@ -523,6 +451,7 @@ class NSpace:
         return c[0],d[0]
     
     def checkOffset(self,b,c):
+        '''Check solution Ac = b modulo N'''
         ## result is all zero if c is an exact solution
         ## otherwise, difference between estimate and solution
         b = colVector(b)
@@ -531,35 +460,31 @@ class NSpace:
         return rowVector(matAdd(b, -v,self.N))
 
 def matResidual(A,b,N,check=False):
-    ## take vector b
-    ## return resdidual after subtracting Howell basis vectors
-    ## and vector with multiples of each basis vector
-    # b1,a1 = matResidue(A,b,N)
-    # print(func_name(),A)
-    b = rowVector(b)
+    '''Return residue of b in the rowspan of A - ie b = r + uA mod N.
+    Assumes A is in Howell form.'''
+    r = rowVector(b)
     A = ZMat2D(A)
     m,n = np.shape(A)
     if check is not False:
         x, o = check
-        return matEqual(b,matLinearComb(A,x,N,o))
-    b = rowVector(np.mod(b,N))[0]
+        return matEqual(r,matLinearComb(A,x,N,o))
+    r = rowVector(np.mod(r,N))[0]
     if len(A) == 0 or len(A[0]) == 0:
-        return b,ZMat2D([])
+        return r,ZMat2D([])
     temp = []
     for i in range(len(A)):
         ix = leadingIndex(A[i])
         c = 0
         if ix < n:
-            d = Quo(b[ix],A[i][ix],N)
+            d = Quo(r[ix],A[i][ix],N)
             c = d if d else 0
         temp.append(c)
-        b = np.mod(b - c * A[i],N)
-    a = ZMat(temp)
-    return b,a
+        r = np.mod(r - c * A[i],N)
+    u = ZMat(temp)
+    return r,u
 
 def matLinearComb(A,b,N,o=[0],check=False):
-    ## take vector b representing pattern of basis vectors
-    ## return linear combination of basis + offset o
+    '''return o + bA mod N'''
     if check is not False:
         b1,o1 = matResidual(A,check,N)
         return matEqual(b,b1) and matEqual(o,o1)
@@ -567,51 +492,9 @@ def matLinearComb(A,b,N,o=[0],check=False):
     b =  rowVector(matMul(b, A, N))
     return np.mod(b + o, N)
 
-## given a set of matrix A in Howell form
-## Modulo N
-## Produce the set of generators with the lowest weight up to the nth entry
-# def lowWeightGenerators(A,N=2,n=None,check=False):
-#     if n is None:
-#         m,n = np.shape(A)
-#     if check is not False:
-#         S,H = check
-#         # print('Checking',func_name())
-#         # print('H')
-#         # print(ZmatPrint(H))
-#         for x in A:
-#             r,u = matResidual(H,x[:n],2)
-#             if sum(r) > 0:
-#                 return False 
-#         return True
-
-#     temp = dict()
-#     for x in RowSpan(A,N):
-#         w = weight(x[:n])
-#         if w > 0:
-#             if w not in temp:
-#                 temp[w] = []
-#             temp[w].append(x)
-#     S,H = [],[]
-#     for w in sorted(temp.keys()):
-#         print(func_name(), w,len(temp[w]))
-#         for x in temp[w]:
-#             if len(S) == 0:
-#                 S.append(x)
-#                 H.append(x[:n])
-#             else:
-#                 r, u = matResidual(H,x[:n],N)
-#                 if sum(r)> 0: 
-#                     H.append(r)
-#                     S.append(x)
-#     return  ZMat(S),ZMat(H)
-    
-
-
-
 ##################################################
 ####          Intersection of Spans           ####
 ##################################################
-
 
 def affineIntersection(A1,o1,A2,o2,N,C=False):
     '''Calculate intersection of two affine spaces
@@ -635,7 +518,6 @@ def affineIntersection(A1,o1,A2,o2,N,C=False):
         return True
 
     nsp = NSpace(np.vstack([A1,A2]),N)
-    # nsp.simplifyH()
     v = np.mod(o1-o2,N)
     b,u = matResidual(nsp.H,v,N)
     if not isZero(b):
@@ -667,7 +549,6 @@ def affineIntercept(A1,o1,A2,o2,N,C=False):
     o = np.mod(b + o2,N)
     return o
 
-
 def nsIntersection(Alist,N):
     '''Intersection of multiple rowspans AList modulo N.'''
     if len(Alist) == 0:
@@ -681,7 +562,6 @@ def nsIntersection(Alist,N):
         nsp = NSpace(C,N)
         A = nsp.H
     return A
-
 
 def nsUnion(Alist,N):
     '''Union of multiple rowspaces Alist modulo N'''
