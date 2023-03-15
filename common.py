@@ -103,6 +103,16 @@ def argsort(seq,reverse=False):
     # http://stackoverflow.com/questions/3071415/efficient-method-to-calculate-the-rank-vector-of-a-list-in-python
     return sorted(range(len(seq)), key=seq.__getitem__,reverse=reverse)
 
+
+def ixRev(ix):
+    ## return indices to restore original column order
+    ## input: ix - permutation of [0..n-1]
+    ## output: ixR such that ix[ixR] = [0..n-1]
+    ixR = [0] * len(ix)
+    for i in range(len(ix)):
+        ixR[ix[i]] = i 
+    return ixR
+
 ##############################
 ## ZMat Info
 ##############################

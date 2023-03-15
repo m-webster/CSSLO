@@ -9,6 +9,8 @@ from common import *
 def CPlevel(q,V,N,CP=True):
     '''Calculate Clifford level of CP or RP operator CP^V_N(q)'''
     q,V = CPNonZero(q,V)
+    if len(q) == 0:
+        return 0
     t = log2int(N)
     if t is None:
         return t
@@ -306,6 +308,17 @@ def Mnt(n,t,mink=1):
     A = [set2Bin(n,s) for k in range(mink, t+1) for s in itertools.combinations(range(n),k)]
     return ZMat(A)
 
+def VOverlap(V):
+    v = len(V)
+    temp = V @ V.T 
+    for i in range(v):
+        temp[i,i]=0
+    return temp
+    temp = ZMatZeros((v,v))
+    for i in range(v-1):
+        for j in range(i+1,v):
+            temp[i,j] = np.sum(V[i]*V[j])
+    return temp
 
 def MntSubsets(S,t,mink=1):
     '''Return list of subsets of max weight t whose support is a subset of S'''

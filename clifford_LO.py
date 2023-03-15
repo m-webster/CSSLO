@@ -57,6 +57,9 @@ def CSSCode(SX,LX=None,SZ=None,LZ=None):
         LZ = getKer(SX,2)
         ## canonical form of LX - LX LZ^T = I_k
         LZ,lx = LXZDiag(LZ,LX)
+    SZ = ZMat(SZ,n)
+    LZ = ZMat(LZ,n)
+    LX = ZMat(LX,n)
     return Eq,SX,LX,SZ,LZ
 
 ## for CSS code get LX
@@ -154,7 +157,9 @@ def CodeTable(mystr):
         else:
             SX.append(x)
             SXZ.append(z)
-    return SX,SZ,SXZ
+    A = SZ if len(SX) == 0 else SX
+    r,n = np.shape(A)
+    return ZMat(SX,n),ZMat(SZ,n),ZMat(SXZ,n)
 
 
 ############################################################
@@ -185,6 +190,27 @@ def parseTriCode(triRow):
     A = ZMat([set2Bin(r,p) for p in parseTriPoly(triRow[1])])
     return A[:,1:]
 
+def triGeom(G):
+    '''Try to interpret triorthogonal code G as a cell complex'''
+    m,n = np.shape(G)
+    C = [F for F in G if np.sum(F) < n]
+    print('cells')
+    print(ZMat2compStr(C))
+    cLen = len(C)
+    F = [C[i] * C[j] for i in range(cLen-1) for j in range(i+1,cLen)]
+    print('faces')
+    print(ZMat2compStr(F))
+    fLen = len(F)
+    E = [F[i] * F[j] for i in range(fLen-1) for j in range(i+1,fLen)]
+    print('edges')
+    print(ZMat2compStr(E))
+    eLen = len(E)
+    V = [E[i] * E[j] for i in range(eLen-1) for j in range(i+1,eLen)]
+    print('vertices')
+    print(ZMat2compStr(V))
+    
+
+
 def getTriCode(triRow,k):
     '''Return check matrix for triRow with k logical qubits.'''
     A = parseTriCode(triRow)
@@ -202,6 +228,7 @@ def getTriCode(triRow,k):
         c = np.sum(ix)
         G = V[ix==1].T
     G = np.vstack([[1]*c,G])
+    # triGeom(G)
     SX, rowops = How(G,2)
     if len(SX) < k:
         return None
@@ -300,6 +327,97 @@ def hypCode(myrow):
     return SX, SZ
 
 
+def hypCellulation(myrow):
+    EV = str2ZMatdelim( myrow['zEV']).T
+    FE = str2ZMatdelim( myrow['zEF'])
+    FV = str2ZMatdelim( myrow['zFV'])
+    E,V = np.shape(EV)
+    F,V = np.shape(FV)
+    print('VEF',V,E,F)
+    temp = []
+    for i in range(F):
+        Fv = FV[i]
+        Fe = FE[i]
+        Fev = EV * Fv 
+        Fev = Fev * ZMat([Fe]).T
+        ev = {i:set(bin2Set(Fev[i])) for i in range(len(Fev)) if np.sum(Fev[i]) > 0}
+        Fev = Fev.T
+        ve = {i:set(bin2Set(Fev[i])) for i in range(len(Fev)) if np.sum(Fev[i]) > 0}
+        Ffe = FE * Fe
+        Ffe[i,:] = 0 
+        ef = [bin2Set(v) for v in Ffe.T]
+        ef = {i:ef[i][0] for i in range(len(ef)) if len(ef[i]) == 1}       
+        vList,fList = [],[]
+        v = min(ve.keys())
+        while len(ve[v]) > 0:
+            e = ve[v].pop()
+            ev[e].remove(v)
+            v1 = ev[e].pop()
+            ve[v1].remove(e)
+            vList.append(v)
+            fList.append(ef[e])
+            v = v1
+        temp.append((vList,fList))
+    return temp
+
+def PrintCellulation(A):
+    temp = []
+    for i in range(len(A)):
+        temp.append(f'\nFace {i}:')
+        temp.append(f'Vertices {A[i][0]}')
+        temp.append(f'Faces {A[i][1]}')
+    return '\n'.join(temp)
+
+def NColour(A,N):   
+    FAdj = [a[1] for a in A]
+    # print('FAdj',FAdj)
+    F = np.max([np.max(a) for a in FAdj]) +1
+    # print(f'F={F}')
+    todo = [(0,-1)]
+    visited = set([0])
+    colouring = [-1] * F
+    while len(todo) > 0:
+        curr, prev = todo.pop(0)
+        myrow = FAdj[curr]
+        # print('colouring',colouring)
+        # print('todo',todo)
+        if prev < 0:
+            ## initial face
+            colouring[curr] = 0
+            ix = 0
+            col = 1
+        else:
+            ## subsequent faces
+            ix = myrow.index(prev)
+            col = colouring[prev]
+        currCol = colouring[curr]
+        V = len(myrow)
+        for i in range(V):
+            f = myrow[(i + ix) % V]
+            if f not in visited:
+                visited.add(f)
+                colouring[f] = col
+                todo.append((f,curr))
+            col = (-col - currCol ) % N
+    # print(colouring)
+    return colouring
+
+def testColouring(A,colouring):
+    FAdj = [a[1] for a in A]
+    for f1 in range(len(FAdj)):
+        for f2 in FAdj[f1]:
+            if colouring[f1] == colouring[f2]:
+                return False 
+    return True
+
+def printColouring(colouring):
+    N = max(colouring) +1
+    temp = [[] for i in range(N)]
+    for i in range(len(colouring)):
+        temp[colouring[i]].append(i)
+    for i in range(N):
+        print(i,':',temp[i])
+
 ############################################################
 ## Symmetric Hypergraph Product Codes
 ############################################################
@@ -394,21 +512,23 @@ def repCode(r,closed=True):
     '''Generate classical repetition code on r bits.
     If closed, include one dependent row closing the loop.'''
     s = r if closed else r-1 
+
     SX = ZMatZeros((s,r))
     for i in range(s):
         SX[i,i] = 1
         SX[i,(i+1)%r] = 1
     return SX
+
     SX = ZMatI(r-1)
     zr = ZMatZeros((r-1,1))
-    return np.hstack([SX,zr]) + np.hstack([zr,SX]) 
+    # return np.hstack([SX,zr]) + np.hstack([zr,SX]) 
     return np.hstack([SX,np.ones((r-1,1),dtype=int)])
 
 ## build 2D toric code from repetition code and SHPC constr
 def toric2D(r):
     '''Generate distance r 2D toric code using SHCP construction.
     Returns SX, SZ.'''
-    A = repCode(r)
+    A = repCode(r,closed=False)
     return SHPC(A)
 
 ## partition for toric code SS^3 logical operator
@@ -438,6 +558,105 @@ def rotated_surface(L):
     SX = [set2Bin(n,x) for x in SX]
     LX = [set2Bin(n,LX)]
     return SX,LX
+
+##############################################
+## CHAIN COMPLEXES
+##############################################
+
+def complexCheck(AList):
+    '''Check if AList is a valid complex'''
+    for i in range(len(AList)-1):
+        Ai = AList[i]
+        mi,ni = np.shape(Ai)
+        Aj = AList[i+1]
+        mj,nj = np.shape(Aj)
+        ## check dimension of matrices
+        if ni != mj:
+            print(f'ni={ni} != mj={mj} for i={i},j={i+1}')
+            return False
+        ## check that successive operators multiply to zero
+        AiAj = matMul(Ai,Aj,2)
+        if not np.sum(AiAj) == 0:
+            print(f'Ai@Aj != 0 for i={i},j={i+1}')
+            return False
+    return True
+
+def complexNew(AList):
+    '''Make a new complex - make sure there's a zero operator at the end'''
+    AList = complexTrim(AList)
+    AList = complexAppendZero(AList)
+    return AList
+
+def complexTrim(AList):
+    '''Remove any all zero matrices from beginning of AList.'''
+    temp = []
+    i = 0
+    while np.sum(AList[i]) == 0:
+        i+=1
+    return AList[i:]
+
+def complexAppendZero(AList):
+    '''Add zero operator to beginning of AList'''
+    m,n = np.shape(AList[0])
+    return [ZMatZeros((1,m))] + AList
+
+def complexDims(AList):
+    '''Return dimensions of each space acted upon by AList.'''
+    return [np.shape(A)[1] for A in AList]
+
+def complexTCProd(AList,BList):
+    ABList = complexNew(AList), complexNew(BList)
+    dimAB = [complexDims(AB) for AB in ABList]
+    lenAB = [len(AB) for AB in ABList]
+    sList = [[] for i in range(lenAB[0] + lenAB[1] -1)]
+    for i in range(lenAB[0]):
+        for j in range(lenAB[1]):
+            sList[i+j].append((i,j))
+    temp = []
+    for i in range(1,len(sList)):
+        # print(f'from:{sList[i]}')
+        # print(f'to:{sList[i-1]}')
+        C = []
+        for rAB in sList[i-1]:
+            myrow = []
+            for cAB in sList[i]:
+                dAB = ZMat(cAB) - ZMat(rAB)
+                kronList=[]
+                for k in range(2):
+                    r,c,d = rAB[k],cAB[k],dAB[k]
+                    cellDim = (dimAB[k][r],dimAB[k][c])
+                    # print(f'r:{r} c:{c} d:{d}')
+                    if d == 1:
+                        AB = ABList[k][c]
+                    elif d == 0:
+                        AB = ZMatI(cellDim[0])
+                    else:
+                        AB = ZMatZeros(cellDim)
+                    kronList.append(AB)
+                myrow.append(np.kron(kronList[0],kronList[1]))
+            C.append(np.hstack(myrow))
+        C = np.vstack(C)
+        # print(f'C{i}')
+        # print(ZmatPrint(C))
+        temp.append(C)
+    return temp
+
+def toricDd(D,d):
+    '''Generate SX,SZ for toric code of D dimensions of distance d'''
+    H = repCode(d)
+    AList = [H.copy()]
+    H = complexNew([H])
+    for i in range(D-1):
+        AList = complexTCProd(H,complexNew(AList))
+    # print('ComplexDims:', complexDims(AList))
+    SX = AList[-1].T
+    r,n = np.shape(SX)
+    SZ = AList[-2] if len(AList) > 1 else ZMatZeros((0,n))
+    return SX,SZ
+
+def CSSPuncture(SX,LX,z):
+    ix = bin2Set(z)
+    return CSSCode(SX[:,ix], LX[:,ix])
 
 
 #########################################################################
@@ -655,8 +874,6 @@ def DiagLOActions(LZ,LX,N):
     pVec = ZMat(np.mod([[np.dot(z,x) for x in vLX] for z in LZ],N))
     return pVec,vList
 
-
-
 def codeword_test(qVec,Eq,SX,LX,V,N):
     '''Print report on action of \prod_{v \in V}CP_N(qVec[v],v) operator on comp basis elts in each codeword.
     Inputs:
@@ -701,7 +918,25 @@ def minWeight(SX):
                 SXt = SXit
                 done = False
     return SX
-	
+
+def minWeightPerm(SX,t):
+    '''Return a set of vectors spanning <SX> which have minimum weight.
+    Permute columns of SX t times to ensure we have the smallest weights.'''
+    SX = minWeight(SX)
+    r,n = np.shape(SX)
+    for i in range(t):
+        ix = np.random.permutation(n)
+        # w = np.sum(SX,axis=-1)
+        # print('w',w)
+        # h = ([w] @ SX)[0]
+        # print('h')
+        # print(h)
+        # ix = argsort(h)
+        # print('ix',ix)
+        ixR = ixRev(ix)
+        SX = minWeight(SX[:,ix])
+        SX = SX[:,ixR]
+    return SX
 
 def updateSX(SX,SXt,i):
     '''Add row i to all elements of SX - helper function for minWeight'''
@@ -716,11 +951,27 @@ def updateSX(SX,SXt,i):
             SXt[j] = SXet[j]
     return SX,SXt
 
-def ZDistance(SZ,LZ,LX):
+def ZDistanceProb(SZ,LZ,LX):
     '''Find lowest weight element of <SZ,LZ> which has a non-trivial logical action.
-    Return z component and action'''
+    Uses random method of https://github.com/VadimShabashov/QDistRnd/blob/main/doc/body.autodoc
+    Return z component and action'''  
     SZLZ = np.vstack([SZ,LZ])
-    SZLZ, rowops = How(SZLZ,2)
+    k,n = np.shape(LX)  
+    d = n+1
+    reps = 3
+    for i in range(reps):
+        mw, la = ZDistanceIter(SZLZ,LX,n)
+        d1 = np.sum(mw)
+        if d1 < d:
+            d,MW,LA = d1,mw,la
+    return MW,LA
+
+def ZDistanceIter(SZLZ,LX,n):
+    ix = np.random.permutation(n)
+    ixR = ixRev(ix)
+    SZLZ = SZLZ[:,ix]
+    LX = LX[:,ix]
+    SZLZ, rowops = How(SZLZ,2)    
     MW =  minWeight(SZLZ)
     LA = matMul(MW,LX.T,2)
     ix = np.sum(LA,axis=-1) > 0
@@ -728,6 +979,29 @@ def ZDistance(SZ,LZ,LX):
     if np.any(ix):
         MW = MW[ix]
         LA = LA[ix]
+    ix = np.argmin(np.sum(MW,axis=-1))
+    return MW[ix][ixR], LA[ix]
+
+def ZDistance(SZ,LZ,LX):
+    '''Find lowest weight element of <SZ,LZ> which has a non-trivial logical action.
+    Uses coset leader method of https://arxiv.org/abs/1211.5568
+    Return z component and action'''
+    SZLZ = np.vstack([SZ,LZ])
+    SZLZ, rowops = How(SZLZ,2)
+    MW =  minWeight(SZLZ)
+    # t = 10
+    # MW =  minWeightPerm(SZLZ,t)
+    
+    LA = matMul(MW,LX.T,2)
+    ix = np.sum(LA,axis=-1) > 0
+    ## cover the case where there are no nontrivial LO - min weight of stabilisers
+    if np.any(ix):
+        MW = MW[ix]
+        # print('MW')
+        # print(ZmatPrint(MW))
+        LA = LA[ix]
+        # print('LA')
+        # print(ZmatPrint(LA))
     ix = np.argmin(np.sum(MW,axis=-1))
     return MW[ix], LA[ix]
 
@@ -855,6 +1129,7 @@ def ker_search(target,Eq,LX,SX,t,debug=False):
     '''
     r, n = np.shape(SX)
     k = len(LX)
+    # print(func_name(), n,r,k, t)
     (x,qL), VL, t2 = Str2CP(target,n=k)
     if t > t2:
         qL = ZMat(qL) * (1 << (t-t2))
@@ -871,6 +1146,8 @@ def ker_search(target,Eq,LX,SX,t,debug=False):
             pList, V = DiagLOActions([z],LX,N)
             q = action2CP(V,pList[0],N)
             print('operator:',z2Str(z,N))
+            if n < 16:
+                print(f'XP Form: XP_{N}(0|0|{ZMat2str(z)})')
             print("action:",CP2Str(2*q,V,N)[1])
         return z
     if debug:
@@ -955,13 +1232,14 @@ def commZ(x,K_M,N):
     Ix = ZMat([set2Bin(n,[i]) for i in bin2Set(1-x)],n)
     return np.vstack([Rx,Ix])
 
-def comm_method(Eq, SX, LX, N,compact=True,debug=True):
+def comm_method(Eq, SX, LX, SZ, t, compact=True, debug=True):
     '''Run the commutator method and print results.
     Inputs:
     Eq: 1xn zero vector
     LX: X logicals
     SX: X-checks
-    N: required precision
+    SZ: Z-checks
+    t: Clifford hierarchy level
     compact: if True, output full vector forms, otherwise support view.
     debug: if True, verbose output.
     Output:
@@ -970,48 +1248,60 @@ def comm_method(Eq, SX, LX, N,compact=True,debug=True):
     V: vectors indexing qList
     K_M: phase and z components of diagonal logical XP identities 
     '''
+    r,n = np.shape(SX)
+    N = 1 << t
     ## Logical identities
-    K_M = LIAlgorithm(Eq,LX,SX,N,compact,debug=debug)
-   
-    zList = DiagLOComm(SX,K_M,N)
-    pList, V = DiagLOActions(zList,LX,N)
+    if t == 1: 
+        K_M = ZMatZeros((1,n+1))
+    elif t == 2 and SZ is not None:
+        K_M = np.hstack([SZ,ZMatZeros((len(SZ),1))]) * 2
+    else:
+        K_M = LIAlgorithm(Eq,LX,SX,N//2,compact,debug=debug) * 2
+
+    K_L = DiagLOComm(SX,K_M,N)
+
+    pList, V = DiagLOActions(K_L,LX,N)
     qList = ZMat([action2CP(V,pList,N) for pList in pList])
-    ix = np.sum(qList,axis=-1) > 0 
-    zList, pList, qList = zList[ix], pList[ix], qList[ix]
+
     if debug:
         print('\nApplying Commutator Method:')
-        print('(action | z-component | q-vector)')
-        for z, q in zip(zList,qList):
-            if compact:
-                print(z2Str(z,N),"|", row2compStr(q),"|", CP2Str(2*q,V,N)[1])
-            else:
-                print(ZMat2str(z), ZMat2str(q), CP2Str(2*q,V,N)[1])        
+        print('(z-component | q-vector | action)')
+        for z, q in zip(K_L,qList):
+            if np.sum(q) > 0:
+                if compact:
+                    print(z2Str(z,N),"|", row2compStr(q),"|", CP2Str(2*q,V,N)[1])
+                else:
+                    print(ZMat2str(z), ZMat2str(q), CP2Str(2*q,V,N)[1])        
 
         print(f'\nq-vector Represents CP_{N}(2q, w) where w =')
         for i in range(len(V)):
             print(f'{i}: {ZMat2str(V[i])}')
-    A = np.hstack([qList,zList])
+    A = np.hstack([qList,K_L])
     A, rowops = How(A,N)
-    qList, zList = A[:,:len(V)], A[:,len(V):]
+    qList, K_L = A[:,:len(V)], A[:,len(V):]
+
+    ## update K_M
+    ix = np.sum(qList,axis=-1) == 0 
+    K_M = K_L[ix]
+    ## non-trivial LO
     ix = np.sum(qList,axis=-1) > 0 
-    zList, qList = zList[ix], qList[ix]
+    K_L, qList = K_L[ix], qList[ix]
 
     if debug:    
         print('\nRearranging matrix to form (q, z) and calculating Howell Matrix form:')
         print('(z-component | q-vector | action)')
-        for z, q in zip(zList,qList):
+        for z, q in zip(K_L,qList):
             if compact:
                 print(z2Str(z,N),"|", row2compStr(q),"|", CP2Str(2*q,V,N)[1])
             else:
                 print(ZMat2str(z), ZMat2str(q), CP2Str(2*q,V,N)[1])     
-    return zList, qList, V, K_M
+    return K_L, qList, V, K_M
 
 
 
 ############################################################
 ## Depth One Algorithm
 ############################################################
-
 
 def depth_one_t(Eq,SX,LX,t=2,cList=None, debug=False):
     '''Run depth-one algorithm - search for transversal logical operator at level t of the Clifford hierarchy
@@ -1036,63 +1326,79 @@ def depth_one_t(Eq,SX,LX,t=2,cList=None, debug=False):
     else:
         ## V based on partition supplied to algorithm
         V = Mnt_partition(cList,n,t)
-    
     ## Embedded Code
     ## move highest weight ops to left - more efficient in some cases
     V = np.flip(V,axis=0)
     SX_V = matMul(SX, V.T, 2)
     LX_V = matMul(LX, V.T, 2)
-    Eq_V,SX_V,LX_V,SZ_V,LZ_V = CSSCode(SX_V,LX_V)
-    SXLX = np.vstack([SX,LX])
+    Eq_V = ZMatZeros((1,len(V))) 
 
-    zList, qL, VL, K_M = comm_method(Eq_V, SX_V, LX_V, N,compact=True,debug=False)
-    tList = [CPlevel(2*q,VL,N) for q in qL]
-    ## Level t logical operators
-    ix = [i for i in range(len(tList)) if tList[i] == t]
+    # print('getting KM, N =',N//2)
+    # K_M = getKM(Eq_V,SX_V,LX_V,N//2) * 2
+    # ## get diag LO plus actions
+    # print('getting KL, N =',N)
+    # zList = DiagLOComm(SX_V,K_M, N)
+    # print('DiagLOActions')
+    # pList, VL = DiagLOActions(zList,LX_V,N)
+    # qList = ZMat([action2CP(VL,pL,N) for pL in pList])
+    # print('How(qList)')
+    # ## Convert logical actions to Howell form
+    # A = np.hstack([qList,zList])
+    # A, rowops = How(A,N)
+    # qList, zList = A[:,:len(VL)], A[:,len(VL):]
+
+    SZ_V = None
+    K_L, qList, VL, K_M = comm_method(Eq_V, SX_V, LX_V, SZ_V, t, compact=False, debug=False)
+    zList = np.vstack([K_L,K_M])
+
+    tList = [CPlevel(2*qL,VL,N) for qL in qList]
+    ## Level t logical operators - calculate overlap (how many times a qubit is used in more than one operator)
+    ix = [(overlapCount(zList[i], V), i) for i in range(len(tList)) if tList[i] == t]
+    # print('ix')
+    # print(ix)
+
     if len(ix) == 0:
         print(f'No level {t} logical operators found.')
         return None
-    j = min(ix)
-    zList = [a for a in zList]
-    qRP = zList.pop(j) * 2
-    zList = ZMat(zList,len(qRP))
-    PRKM = np.hstack([zList * 2, ZMatZeros((len(zList),1))])
-    PRKM = np.vstack([2* K_M, PRKM])
-    PRKM, rowops = How(PRKM, 2*N)
+    o,j = min(ix)
+    # o,j = ix[0]
+    ## RP operators - double z-component of XP operators
+    RPKM = 2 * zList
+    ## get jth row - level t LO
+    qRP = RPKM[j].copy()
+    ## clear row j from RPKM
+    RPKM[j] = 0
+    ## convert to CP form
     qCP = CP2RP(qRP,V,t,CP=False,Vto=V)[0]
-
-    ## add all zeros row to end of V, qCP and qPR representing phase component
-    V = np.vstack([V,ZMatZeros((1,n))])
-    qCP = np.hstack([qCP,[0]])
-    qRP = np.hstack([qRP,[0]])
-    # PRKM = np.hstack([PRKM,ZMatZeros((len(PRKM),1))])
-
-    CPKM = ZMat([CP2RP(q,V,t,CP=False,Vto=V)[0] for q in PRKM])
-    ## CPKM is modulo  2N
+    CPKM = ZMat([CP2RP(q,V,t,CP=False,Vto=V)[0] for q in RPKM])
+    ## Howell form modulo 2N
     CPKM, rowops = How(CPKM,2*N)
 
+    target = "".join(CP2Str(2*qList[j],VL,N))
+    print('Logical action:',target)
     if debug:
-        print('V')
-        for i in range(len(V)):
-            print(i,'=>',bin2Set(V[i]))
+        # print('V')
+        # for i in range(len(V)):
+        #     print(i,'=>',bin2Set(V[i]))
         
-        print('Embedded CSS Code')
-        print_SXLX(SX_V,LX_V,SZ_V,LZ_V,True)
+        # print('Embedded CSS Code')
+        # print_SXLX(SX_V,LX_V,SZ_V,LZ_V,True)
 
         print('Target - RP Form',ZMat2str(qRP))
         print(CP2Str(qRP,V,N,False)[1])
         print('Target - CP Form',ZMat2str(qCP) )
         print(CP2Str(qCP,V,N,True)[1])
 
-        print("\nLogical Identites + Operators - RP Form")
-        print(ZmatPrint(PRKM))
+        # print("\nLogical Identites + Operators - RP Form")
+        # print(ZMat2compStr(PRKM))
 
         print("\nLogical Identites + Operators - CP Form")
-        print(ZmatPrint(CPKM))
+        print(ZMat2compStr(CPKM))
 
-        pList, VL = DiagLOActions([qRP[:-1]//2],LX_V,N)
+        pList, VL = DiagLOActions([qRP//2],LX_V,N)
         qL = action2CP(VL,pList[0],N)
         target = "".join(CP2Str(2*qL,VL,N))
+        print('qCP',ZMat2compStr([qCP]))
         print('Logical action:',target)
 
     sol = findDepth1(CPKM,qCP,V,N)
@@ -1104,18 +1410,19 @@ def depth_one_t(Eq,SX,LX,t=2,cList=None, debug=False):
         print('Qubit Partition', cList)
         op = CP2Str(qCP, V, N)[1]
         print('Logical Operator:', op)
+        # print(ZMat2str(qCP))
         
         qRP = CP2RP(qCP,V,t,CP=True,Vto=V)[0]
-        qRP = qRP[:-1]//2
+        # qRP = qRP[:-1]//2
 
-        pList, VL = DiagLOActions([qRP],LX_V,N)
-        qL = action2CP(VL,pList[0],N)
-        target = "".join(CP2Str(2*qL,VL,N))
+        pList, VL = DiagLOActions([qRP//2],LX_V,N)
+        qList = action2CP(VL,pList[0],N)
+        target = "".join(CP2Str(qList*2,VL,N))
         print('Logical action:',target)
-        if len(LX) < 10:
+        if len(LX) < 5:
             print('Testing Action on Codewords')
             codeword_test(qCP,Eq,SX,LX,V,N)
-        print('LO Test:',CPIsLO(qCP,SX,CPKM,V,N))
+        # print('LO Test:',CPIsLO(qCP,SX,CPKM,V,N))
         return cList, target
     else:
         print("\nNo Depth-One Solution Found")
@@ -1135,21 +1442,45 @@ def CPACT(e,qVec,V,N):
     ## return action of CP operator \prod_{v in V} CP_N(qVec[v],v)  on comp basis elt |e>
     xrow = np.abs(uGEV(e,V))
     return np.sum(xrow * qVec ) % (2*N)
-    
 
-def ixRev(ix):
-    ## return indices to restore original column order
-    ## input: ix - permutation of [0..n-1]
-    ## output: ixR such that ix[ixR] = [0..n-1]
-    ixR = [0] * len(ix)
-    for i in range(len(ix)):
-        ixR[ix[i]] = i 
-    return ixR
 
 def FDoverlap(j, V):
     '''return list of indices i in [0..|V|-1] not equal to j such that wt(V[i]V[j]) > 0'''
     E = np.sum(V[j] * V,axis=1)
     return [i for i in range(len(V)) if E[i] > 0 and i != j]
+
+def overlapCount(qVec1, V):
+    ix = bin2Set(qVec1)
+    V1 = V[ix]
+    d = np.sum(V1)
+    return np.sum(V1 @ V1.T) - d
+    vLen = len(V1)
+    return np.sum([V1[i] * V1[j] for i in range(vLen-1) for j in range(i+1, vLen)])
+
+def testSol(LR, KM,qVec,V,N):
+    ## get indices of left/centre/right
+    LRix = LR2ix(LR)
+    ## ix is a flat array
+    ix = [a for r in LRix for a in r]
+    ## z1 is the residual 
+    qVec1 = HowRes(KM[:,ix], qVec[ix],2*N)
+    ## s is the support of z1
+    s = bin2Set(qVec1)
+    m = min(s)
+    ## if m < LR[0] then it was not eliminated - invalid configuration
+    if m >= len(LRix[0]): 
+        ## indices corresp to original col order
+        ixR = ixRev(ix)
+        ## reorder z1
+        qVec1 = qVec1[ixR] 
+        fitness = overlapCount(qVec1, V)
+        # qLen = len(bin2Set(qVec1))
+        # fitness = fitness if fitness==0 else fitness/qLen
+        ## original order of m
+        m1 = ix[m] 
+        return fitness, LR, qVec1, m1
+    else:
+        return False
 
 
 def findDepth1(KM,qVec,V,N):
@@ -1161,56 +1492,155 @@ def findDepth1(KM,qVec,V,N):
     N: required precision
     Output:
     False if no depth one operator found, otherwise z-component of the embedded operator'''
+    # from queue import PriorityQueue 
     ## set of configurations already considered
     visited = set()
     ## configurations to test - initial config is all in centre
-    todo = [tuple([1]*len(V))]
+    LR = tuple([1]*len(V))
+    visited.add(LR)
+    todo = [testSol(LR,KM,qVec,V,N)]
     while len(todo) > 0:
+        # print('visited',len(visited),'todo',len(todo))
+        # print([a[0] for a in todo])
         ## LR[i] = 0: moved to the left to be eliminated
         ## LR[i] = 2: moved to the right to be retained
         ## LR[i] = 1: in the centre - to be assigned a side
         ## get next configurations
-        LR = todo.pop()
-
-        ## get indices of left/centre/right
-        LRix = LR2ix(LR)
-        ## ix is a flat array
-        ix = [a for r in LRix for a in r]
-        ## z1 is the residual 
-        qVec1 = HowRes(KM[:,ix], qVec[ix],2*N)
-        ## s is the support of z1
-        s = bin2Set(qVec1)
-        m = min(s)
-        ## if m < LR[0] then it was not eliminated - invalid configuration
-        if m >= len(LRix[0]): 
-            ## indices corresp to original col order
-            ixR = ixRev(ix)
-
-            ## reorder z1
-            qVec1 = qVec1[ixR] 
-            ## in this case, it's a valid solution as only non-zero values are on RHS
-            if m >= len(LRix[0]) + len(LRix[1]): 
-                return qVec1
-            ## original order of m
-            m1 = ix[m] 
-            ## get overlap with m
-            ix = FDoverlap(m1, V) 
-            ## LR1: overlap with m moved to left; m moved to the right
-            LR1 = list(LR) 
-            for i in ix:
-                LR1[i] = 0    
-            LR1[m1] = 2
-            ## LR: m moved to left
-            LR2 = list(LR)
-            LR2[m1] = 0
-            for A in LR2, LR1:
-                A = tuple(A)
-                ## add to visited and todo if not already encountered
-                if A not in visited:
-                    visited.add(A) 
-                    todo.append(A)
+        fitness, LR, qVec1, m1 = todo.pop()
+        if fitness == 0:
+            return qVec1
+        ## get overlap with m
+        ix = FDoverlap(m1, V) 
+        ## LR1: overlap with m moved to left; m moved to the right
+        LR1 = list(LR) 
+        for i in ix:
+            LR1[i] = 0    
+        LR1[m1] = 2
+        ## LR: m moved to left
+        LR2 = list(LR)
+        LR2[m1] = 0
+        temp = []
+        for A in LR2, LR1:
+            A = tuple(A)
+            ## add to visited and todo if not already encountered
+            if A not in visited:
+                visited.add(A) 
+                res = testSol(A,KM,qVec,V,N)
+                if res is not False:
+                    temp.append(res)
+        if len(temp) == 2:
+            temp = sorted(temp,reverse=True)
+        todo.extend(temp)
     ## we have looked at all possible configurations with no valid solution
     return False
+
+
+# def findDepth1(KM,qVec,V,N):
+#     '''Run Depth-one algorithm. 
+#     Inputs:
+#     KM: Z_2N matrix representing logical identities and operators of the embedded code
+#     qVec: Z_2N vector representing a logical operator we want to find a depth-one implementation for
+#     V: Embedding matrix - tells us which physical qubits are involved in each CP/RP operator
+#     N: required precision
+#     Output:
+#     False if no depth one operator found, otherwise z-component of the embedded operator'''
+#     from queue import PriorityQueue 
+#     ## set of configurations already considered
+#     visited = set()
+#     ## configurations to test - initial config is all in centre
+#     LR = tuple([1]*len(V))
+#     todo = PriorityQueue()
+#     todo.put(testSol(LR,KM,qVec,V,N))
+#     while not todo.empty():
+#         ## LR[i] = 0: moved to the left to be eliminated
+#         ## LR[i] = 2: moved to the right to be retained
+#         ## LR[i] = 1: in the centre - to be assigned a side
+#         ## get next configurations
+#         fitness, LR, qVec1, m1 = todo.get()
+#         if fitness == 0:
+#             return qVec1
+#         ## get overlap with m
+#         ix = FDoverlap(m1, V) 
+#         ## LR1: overlap with m moved to left; m moved to the right
+#         LR1 = list(LR) 
+#         for i in ix:
+#             LR1[i] = 0    
+#         LR1[m1] = 2
+#         ## LR: m moved to left
+#         LR2 = list(LR)
+#         LR2[m1] = 0
+#         for A in LR2, LR1:
+#             A = tuple(A)
+#             ## add to visited and todo if not already encountered
+#             if A not in visited:
+#                 visited.add(A) 
+#                 res = testSol(A,KM,qVec,V,N)
+#                 if res is not False:
+#                     todo.put(res)
+#     ## we have looked at all possible configurations with no valid solution
+#     return False
+
+
+
+# def findDepth1(KM,qVec,V,N):
+#     '''Run Depth-one algorithm. 
+#     Inputs:
+#     KM: Z_2N matrix representing logical identities and operators of the embedded code
+#     qVec: Z_2N vector representing a logical operator we want to find a depth-one implementation for
+#     V: Embedding matrix - tells us which physical qubits are involved in each CP/RP operator
+#     N: required precision
+#     Output:
+#     False if no depth one operator found, otherwise z-component of the embedded operator'''
+#     ## set of configurations already considered
+#     visited = set()
+#     ## configurations to test - initial config is all in centre
+#     todo = [tuple([1]*len(V))]
+#     while len(todo) > 0:
+#         ## LR[i] = 0: moved to the left to be eliminated
+#         ## LR[i] = 2: moved to the right to be retained
+#         ## LR[i] = 1: in the centre - to be assigned a side
+#         ## get next configurations
+#         LR = todo.pop()
+
+#         ## get indices of left/centre/right
+#         LRix = LR2ix(LR)
+#         ## ix is a flat array
+#         ix = [a for r in LRix for a in r]
+#         ## z1 is the residual 
+#         qVec1 = HowRes(KM[:,ix], qVec[ix],2*N)
+#         ## s is the support of z1
+#         s = bin2Set(qVec1)
+#         m = min(s)
+#         ## if m < LR[0] then it was not eliminated - invalid configuration
+#         if m >= len(LRix[0]): 
+#             ## indices corresp to original col order
+#             ixR = ixRev(ix)
+#             print('overlapCount',overlapCount(qVec1, V))
+#             ## reorder z1
+#             qVec1 = qVec1[ixR] 
+#             ## in this case, it's a valid solution as only non-zero values are on RHS
+#             if m >= len(LRix[0]) + len(LRix[1]): 
+#                 return qVec1
+#             ## original order of m
+#             m1 = ix[m] 
+#             ## get overlap with m
+#             ix = FDoverlap(m1, V) 
+#             ## LR1: overlap with m moved to left; m moved to the right
+#             LR1 = list(LR) 
+#             for i in ix:
+#                 LR1[i] = 0    
+#             LR1[m1] = 2
+#             ## LR: m moved to left
+#             LR2 = list(LR)
+#             LR2[m1] = 0
+#             for A in LR2, LR1:
+#                 A = tuple(A)
+#                 ## add to visited and todo if not already encountered
+#                 if A not in visited:
+#                     visited.add(A) 
+#                     todo.append(A)
+#     ## we have looked at all possible configurations with no valid solution
+#     return False
 
 
 ############################################################
@@ -1258,17 +1688,17 @@ def kronList(AList):
     return temp
 
 
-def zMatrix(k,d):
-    '''Return Z-Logicals for k dimensional toric code of distance d'''
-    Ik = ZMatI(k)
-    rd = ZMat([0] * (d-1) + [1])
-    ad = ZMat([1] * d)
-    temp = []
-    for i in range(k):
-        kList = [Ik[i]] + [rd] * k
-        kList[i+1] = ad
-        temp.append(kronList(kList))
-    return np.vstack(temp)
+# def zMatrix(k,d):
+#     '''Return Z-Logicals for k dimensional toric code of distance d'''
+#     Ik = ZMatI(k)
+#     rd = ZMat([0] * (d-1) + [1])
+#     ad = ZMat([1] * d)
+#     temp = []
+#     for i in range(k):
+#         kList = [Ik[i]] + [rd] * k
+#         kList[i+1] = ad
+#         temp.append(kronList(kList))
+#     return np.vstack(temp)
 
 def CSSwithLO(target,d):
     '''Return a CSS code with an implementation of a desired logical CP operator using single-qubit phase gates.
@@ -1277,28 +1707,64 @@ def CSSwithLO(target,d):
     d: distance of the toric code the resulting code is based on.
     Output:
     SX, LX and Clifford hierarchy level'''
-    (x,q1), V1, t = Str2CP(target)
+    (x, qL), VL, t = Str2CP(target)
+    k = len(VL[0])
     N = 1 << t
-    k = len(x)
-    n = k * d
-    compact = n > 15
-    ## calculate logical Z operators
-    LZ = zMatrix(k,d)
-    ## get canonical implementation of target
-    (q2,V2),(q1,V1) = canonical_logical_algorithm(q1,V1,LZ,t,debug=False,Vto=None)
-    ## SXLX are non-zero cols rows of V1
-    SXLX = RemoveZeroRows(V1.T)
-    ## Split into SX and LX
-    SX, LX = [], []
-    for i in range(k):
-        ## get logical X
-        x = SXLX[d*i + d-1]
-        LX.append(x)
-        ## add logical X to SX rows in the block
-        for j in range(d-1):
-            y = SXLX[d*i + j]
-            SX.append(np.mod(x+y,2))
-    return SX, LX, t
+    SX,SZ = toricDd(k,d)
+    Eq,SX,LX,SZ,LZ = CSSCode(SX,SZ=SZ)
+    ## Get Canonical LO
+    (qCP,VCP), (qRP,V) = canonical_logical_algorithm(qL,VL,LZ,t,debug=False)
+
+    ## sort V so that cols with lowest gcd are to the bottom
+    g = np.gcd(qRP//2,N)
+    maxg = max(np.mod(g,N))
+    if maxg > 1:
+        ix = argsort(g,reverse=True)
+        V = V[ix]
+        qRP = qRP[ix]
+    SXV = matMul(SX,V.T,2)
+    LXV = matMul(LX,V.T,2)
+    EqV,SXV,LXV,SZV,LZV = CSSCode(SXV,LXV)
+
+    if maxg > 1:
+        K_M = SZV * 2 if t ==2 else getKM(EqV,SXV,LXV,N//2)[:,:-1] * 2
+        z, u = matResidual(K_M, qRP//2,N)
+        # print('z',ZMat2str(z))
+        # z = ker_search(target,EqV,LXV,SXV,t,debug=False)
+        # print('z',ZMat2str(z))
+        EqV,SXV,LXV,SZV,LZV = CSSPuncture(SXV,LXV,z)
+    return EqV,SXV,LXV,SZV,LZV, t
+
+
+# def CSSwithLO_old(target,d):
+#     '''Return a CSS code with an implementation of a desired logical CP operator using single-qubit phase gates.
+#     Inputs:
+#     target: string representing the target CP operator
+#     d: distance of the toric code the resulting code is based on.
+#     Output:
+#     SX, LX and Clifford hierarchy level'''
+#     (x,q1), V1, t = Str2CP(target)
+#     N = 1 << t
+#     k = len(x)
+#     n = k * d
+#     compact = n > 15
+#     ## calculate logical Z operators
+#     LZ = zMatrix(k,d)
+#     ## get canonical implementation of target
+#     (q2,V2),(q1,V1) = canonical_logical_algorithm(q1,V1,LZ,t,debug=False,Vto=None)
+#     ## SXLX are non-zero cols rows of V1
+#     SXLX = RemoveZeroRows(V1.T)
+#     ## Split into SX and LX
+#     SX, LX = [], []
+#     for i in range(k):
+#         ## get logical X
+#         x = SXLX[d*i + d-1]
+#         LX.append(x)
+#         ## add logical X to SX rows in the block
+#         for j in range(d-1):
+#             y = SXLX[d*i + j]
+#             SX.append(np.mod(x+y,2))
+#     return SX, LX, t
 
 def codeSearch(target, d, debug=False):
     '''Run the algorithm for generating a CSS code with transversal implementation of a desired logical operator and print output
@@ -1307,21 +1773,24 @@ def codeSearch(target, d, debug=False):
     d: distance of the toric code the resulting code is based on.
     debug: if true, verbose output'''
     ## make a CSS code
-    SX, LX, t = CSSwithLO(target,d)
-    Eq,SX,LX,SZ,LZ = CSSCode(SX,LX)
+    # SX, LX, t = CSSwithLO(target,d)
+    # Eq,SX,LX,SZ,LZ = CSSCode(SX,LX)
+    Eq,SX,LX,SZ,LZ, t = CSSwithLO(target,d)
     N = 1 << t
     r, n = np.shape(SX)
-    compact = n > 15
+    compact = n > 36
     if debug:
-        print('Embedded Code Checks and Logicals')
+        print('Code Found')
+        print('SX: len',len(SX), 'wt', min(np.sum(SX,axis=-1)))
+        print('SZ: len',len(SZ), 'wt', min(np.sum(SZ,axis=-1)))
         print_SXLX(SX,LX,SZ,LZ,compact)
 
         ## Logical identities
-        K_M = getKM(Eq, SX, LX, N)
+        # K_M = getKM(Eq, SX, LX, N)
 
-        ## Algorithm 1 - search
-        print(f'\nKernel Method - Search for {target}')
-        ker_search(target,Eq,LX,SX,N,compact)
+        # ## Algorithm 1 - search
+        # print(f'\nKernel Method - Search for {target}')
+        # ker_search(target,Eq,LX,SX,N,compact)
 
         print('Qubits in Code:',n)
         ## Z distance
