@@ -86,7 +86,13 @@ def tupleDict(V):
 
 def pIndex(V):
     '''Find phase component - corresponds to all zero vector, usually in last position'''
-    j = np.where(np.sum(V,axis=-1) == 0)
+    m,n = np.shape(V)
+    ## usually last row of V is zero
+    if sum(V[-1]) == 0:
+        return m-1
+    ## if not, check all rows
+    w = np.sum(V,axis=-1)
+    j = [i for i in range(m) if w[i] == 0]
     return j[0] if len(j) == 1 else None
 
 def CPSetV(q1,V1,V2):
@@ -178,14 +184,18 @@ def CP2Str(qVec,V,N,CP=True):
             zStr += str(bin2Set(v)).replace(" ","")  
     if len(zStr) == 0:
         zStr = " I"    
-    return pStr, zStr
+    return pStr + zStr
 
 
 def XCP2Str(A,V,N):
     '''String rep of operator with X and CP components.
     A= (x,qVec) - operator is XP_2(0|x|0)CP^V_N(qVec)'''
     x,qVec = A
-    pStr, zStr = CP2Str(qVec,V,N)
+    zStr = CP2Str(qVec,V,N)
+    pStr = ""
+    if zStr[0] == 'w':
+        ix = zStr.find(" ")
+        pStr, zStr = zStr[:ix], zStr[ix:]
     return pStr + x2Str(x) + zStr
 
 
