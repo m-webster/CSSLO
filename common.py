@@ -12,6 +12,14 @@ import time
 ## Create ZMat
 #######################################
 
+
+def freqTable(wList):
+    '''Dict of val:count for val in wList'''
+    temp = {w:0 for w in set(wList)}
+    for w in wList:
+        temp[w] += 1
+    return temp
+
 def ZMat(A,n=None):
     '''Create an integer numpy array. If n is set, ensure that the row length is n.'''
     if typeName(A) in ['set','range']:

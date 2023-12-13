@@ -35,14 +35,14 @@ def CSSCode(SX,LX=None,SZ=None,LZ=None):
     ## Input is SX, SZ
     if LX is None:
         ## convert SX to RREF mod 2
-        SX,rowops = How(SX,2)
+        # SX,rowops = How(SX,2)
         ## SZ could be None - handle this case
         if SZ is None:
             SZ = ZMatZeros((0,n))
         else:
             ## otherwise, make RREF
             SZ = ZMat(SZ,n)
-            SZ,rowops = How(SZ,2)
+            # SZ,rowops = How(SZ,2)
         ## Calculate LX from SX, SZ
         LX = CSSgetLX(SX,SZ)
     ## Input is SX, LX
@@ -62,6 +62,8 @@ def CSSCode(SX,LX=None,SZ=None,LZ=None):
 
 def CSSgetLX(SX, SZ):
     """Get LX for CSS code with check matrices SX, SZ."""
+    SX,rowops = How(SX,2)
+    SZ,rowops = How(SZ,2)
     m,n = np.shape(SX)
     LiX = [leadingIndex(x) for x in SX]
     mask = 1 - set2Bin(n,LiX)
@@ -638,9 +640,18 @@ def Orbit2dist(Eq,SX,t=None,return_u=False):
 def nkdReport(SX,LX,SZ,LZ):
     '''Report [[n,k,dX,dZ]] for CSS code specified by SX,LX,SZ,LZ.'''
     k,n = np.shape(LX)
-    Zop, Zact = ZDistance(SZ,LZ,LX)
-    Xop, Xact = ZDistance(SX,LX,LZ)
-    return(f'n:{n} k: {k} dX: {sum(Xop)} dZ:{sum(Zop)}')
+    op, act = ZDistance(SZ,LZ,LX)
+
+    # print('LX',op,'Action',act)
+    dZ = sum(op)
+    op, act = ZDistance(SX,LX,LZ)
+    test = np.mod(np.sum(op * SZ, axis=-1),2)
+    print('Testing LX',0 == np.sum(test))
+    # print('LZ',op,'Action',act)
+    dX = sum(op)
+    d = min([dX,dZ])
+    gamma = np.log(n/k)/np.log(d)
+    return(f'n:{n} k: {k} dX: {dX} dZ:{dZ} gamma:{gamma}')
 
 def tOrthogonal(SX,target=None):
     '''Return largest t for which the weight of the product of any t rows of SX is even.'''
@@ -860,6 +871,69 @@ def ZDistance(SZ,LZ,LX):
         LA = LA[ix]
     ix = np.argmin(np.sum(GZ,axis=-1))
     return GZ[ix], LA[ix]
+
+
+def codeGamma(n,k,d):
+    if d > 1:
+        return(np.log (n / k)/np.log(d))
+    return 10
+
+
+def indepLZ(H,LZ):
+    ## get an independent set of LZ
+    ## H is SZ is in howell form
+    k,n = np.shape(LZ)
+    temp = []
+    for x in LZ:
+        r, v = matResidual(H,x,2)
+        if np.sum(r) != 0:
+            H = np.vstack([H,[x]])
+            H, rowops = How(H,2)
+            temp.append(x)
+    return ZMat(temp,n)
+
+def minWeightLZ(SZ,LZ):
+    '''Find lowest weight generating of <SZ,LZ> which has a non-trivial logical action.
+    Uses coset leader method of https://arxiv.org/abs/1211.5568
+    Return z component and action'''
+    SZLZ = np.vstack([SZ,LZ])
+    SZLZ, rowops = How(SZLZ,2)
+    LZ =  ZMat(minWeight(SZLZ))
+    SZ, rowops = How(SZ,2)
+    return indepLZ(SZ,weightSort(LZ))
+
+def weightSort(LZ):
+    LZ = ZMat(LZ)
+    w = np.sum(LZ,axis=-1)
+    ix = argsort(w)
+    return LZ[ix]
+
+def SXOverlaps(SX):
+    temp = set()
+    r, n = np.shape(SX)
+    for i in range(r-1):
+        for j in range(i+1, r):
+            x = SX[i] * SX[j]
+            if np.sum(x) > 0:
+                temp.add(tuple(x))
+    return ZMat(temp)
+	
+def GRANDdX(SZ,LZ,maxd=None):
+    '''X-distance using GRAND method'''
+    r,n = np.shape(LZ)
+    maxd = n if maxd is None else maxd
+    for d in range(maxd):
+        ## all binary vectors of weight d
+        for x in iter.combinations(range(n),d):
+            x = set2Bin(n,x)
+            ## syndrome vector - if a stabiliser or LX, this should be zero
+            s = np.mod(SZ @ x, 2)
+            if np.sum(s) == 0:
+                ## if LX, this should be non-zero
+                s = np.mod(LZ @ x, 2)
+                if np.sum(s) > 0:
+                    return d
+    return maxd
 
 ########################################################
 ## Logical Identity Algorithm
@@ -1445,3 +1519,49 @@ def codeSearch(target, d, debug=False):
     x,pVec = ZDistance(SX,LX,LZ)
     dX = np.sum(x)
     return SX,LX, dX,dZ
+
+######################################
+## Local Logical Operators
+######################################
+
+def tValentProduct(SX,t):
+    '''Products of t different rows from SX'''
+    # print(func_name(),'SX')
+    # print(ZmatPrint(SX))
+    temp = set()
+    r, n = np.shape(SX)
+    for s in iter.combinations(range(r),t):
+        x = np.product(SX[list(s)],axis=0)
+        # print('s',s,'wt(x)',np.sum(x))
+        if np.sum(x) > 0:
+            temp.add(tuple(x))
+    return ZMat(temp)
+
+def VLocal(SX,t):
+    '''Return list of groups of up to t qubits connected by a row of SX'''
+    SXSets = [bin2Set(x) for x in SX]
+    return {c for x in SXSets for s in range(2,t+1) for c in iter.combinations(x, s) }
+
+def LocalLO(SX, LX, SXLX, t):
+    k, n = np.shape(LX)
+    N = 1 << t
+    Eq = ZMatZeros((1, n))
+    print('\nEMBEDDED CODE')
+    print('Neighbour Graph Edge Weights',set(np.sum(SXLX,axis=-1)))
+
+    V = VLocal(SXLX,2)
+    print('Extra Qubits for Embedded Code', len(V))
+    V = [set2Bin(n,v) for v in V]
+    V = np.vstack([ZMatI(n),V])
+    SX_V = matMul(SX,V.T,2)
+    LX_V = matMul(LX,V.T,2)
+
+    Eq_V, SX_V, LX_V, SZ_V, LZ_V = CSSCode(SX_V,LX_V)
+
+    zList,qList, VL, K_M = comm_method(Eq_V, SX_V, LX_V, SZ_V, t,debug=False)
+    
+    print('\nLocal Diagonal Logical Operators via Embedded Code')
+    for z,qL in zip(zList,qList):
+        q, Vq = CP2RP(2*z,V,t,CP=False)
+        print(CP2Str(2*qL,VL,N),"=>",CP2Str(q,Vq,N)) 
+        # codeword_test(q,Eq,SX,LX,Vq,N)

@@ -8,29 +8,74 @@ import itertools as iter
 ## Reports
 ##########################################################
 
-def GRANDdX(SZ,LZ,maxd=None):
-    '''X-distance using GRAND method'''
-    r,n = np.shape(LZ)
-    maxd = n if maxd is None else maxd
-    for d in range(maxd):
-        ## all binary vectors of weight d
-        for x in iter.combinations(range(n),d):
-            x = set2Bin(n,x)
-            ## syndrome vector - if a stabiliser or LX, this should be zero
-            s = np.mod(SZ @ x, 2)
-            if np.sum(s) == 0:
-                ## if LX, this should be non-zero
-                s = np.mod(LZ @ x, 2)
-                if np.sum(s) > 0:
-                    return d
-    return maxd
+def bicolouringAnalysis(Cells,t):
+    E,F = Cells[0],Cells[1]
+    SX = Cells[-1]
+    SZ = Cells[1]
+    N = 1 << t
+    ## check if SX/SZ rep communting operators
+    comm = matMul(SX,SZ.T,2)
+    print("\n")
+    if np.sum(comm) == 0:
+        ## make a CSS code
+        Eq,SX,LX,SZ,LZ = CSSCode(SX,SZ=SZ)
+        k,n = np.shape(LX)
+        ## Code parameters
+        print(f'[[{n},{k}]] Code')
+
+        ## make min weight set of LX/LZ - optional
+        # LX = minWeightLZ(SX,LX)
+        # LZ = minWeightLZ(SZ,LZ)
+
+        if k > 0:
+            ## vertex bi-colouring - set form
+            B = VColouring(E)    
+            ## convert to binary vector      
+            B = set2Bin(n,B)
+            ## testing only...
+            # Cycles = EF2Cycles(Cells[0],Cells[1])
+            # B = biColouring(Cycles)
+            ## check if a valid bicolouring
+            if len(B) > 0 and max(B) < 2:                
+                print('biColouring',bin2Set(B))
+                ## Make Logical operator from Bicolouring
+                L = np.mod((-1) ** B,N)
+                ## phase applied to codewords
+                res = checkDiagLO(L,Eq,SX,LX,SZ,t)
+                if res is False:
+                    print('Not a Logical Operator')
+                else:
+                    q,V = res
+                    print('Logical operator with action',CP2Str(2*q,V,N))
+            else:
+                print('No Bicolouring')
+                LOReport(Eq,SX,LX,SZ,LZ,t)
+    else:
+        print('Non-commuting stabilisers')
+
+def checkDiagLO(L,Eq,SX,LX,SZ,t):
+    N = 1 << t
+    # calculate logical identities
+    if t > 2:
+        # for t>2, we need to do this explicitly
+        K_M = getKM(Eq,SX,LX,N//2) * 2
+    else:
+        # otherwise, use the Z-checks
+        # ensure they are in RREF
+        SZ, rowps = How(SZ,2)
+        r,n = np.shape(SZ)
+        ## append a column of zeros for phase
+        K_M = np.hstack([SZ,ZMatZeros((r,1))]) * (N//2)
+    if not isDiagLO(L,SX,K_M,N):
+        return False
+    pList, V = DiagLOActions([L],LX,N)
+    # isDiagLO(B,SX,K_M,N)
+    ## actions as CP operators
+    q = action2CP(V,pList[0],N)
+    return q, V
 
 def LOReport(Eq,SX,LX,SZ,LZ,t):
     N = 1 << t
-    # SXLX = np.vstack([SX,LX])
-    # SXLX = tValentProduct(SXLX,2)
-    # LocalLO(SX, LX, SXLX, t)
-
     print('\nCalculating Transversal Logical Operators')
     zList, qList, V, K_M = comm_method(Eq, SX, LX, SZ, t,compact=True,debug=False)
 
@@ -38,20 +83,15 @@ def LOReport(Eq,SX,LX,SZ,LZ,t):
     for z, q in zip(zList,qList):
         print( CP2Str(2*q,V,N),":", z2Str(z,N))
     
-def codeStatsReport(codes,calcDist=True, calck=True,LO=False):
-    print("\n\n")
-    print('Code Stats')
-    print('n\tk\tdX\tdZ\tgamma\tnSX\tnSZ\twSX\twSZ')
-    for SX, SZ in codes:
-        print(codeStats(SX, SZ,calcDist, calck,LO))
-
-def codeStats(SX, SZ ,calcDist=True, calck=True,LO=False):
+def codeStats(Cells,calcDist=True, calck=True,LO=False):
+    SX = Cells[-1]
+    SZ = Cells[1]
     nSX,n = np.shape(SX)
     nSZ,n = np.shape(SZ)
     
     wSX = freqTable(np.sum(SX,axis=-1))
     wSZ = freqTable(np.sum(SZ,axis=-1))
-    k, dX,dZ,gamma = 'NA','NA','NA','NA'
+    k, dZ,wLZ,gamma = 'NA','NA','NA','NA'
     comm = np.sum(matMul(SX,SZ.T,2))
     if comm == 0 and calck:
         Eq, SX,LX,SZ,LZ = CSSCode(SX,SZ=SZ)
@@ -62,8 +102,10 @@ def codeStats(SX, SZ ,calcDist=True, calck=True,LO=False):
         if k > 0 and calcDist:
             startTimer()
             LZ = minWeightLZ(SZ,LZ)
+            wLZ = freqTable(np.sum(LZ,axis=-1))
+            # print('wLZ',wLZ)
             dZ = np.sum(LZ[0])
-            print("Z-distance Method 1",elapsedTime())
+            # print("Z-distance Method 1",elapsedTime())
             # dZ1 = GRANDdX(SX,LX,dZ)
             # print("Z-distance GRAND",elapsedTime())
             # print(f'dZ={dZ}; GRAND method dZ={dZ1}')
@@ -79,28 +121,23 @@ def codeStats(SX, SZ ,calcDist=True, calck=True,LO=False):
         if LO is not False:
             LX = minWeightLZ(SX,LX)
             LOReport(Eq,SX,LX,SZ,LZ,LO)
-    return f'{n}\t{k}\t{dX}\t{dZ}\t{gamma}\t{nSX}\t{nSZ}\t{wSX}\t{wSZ}'
+    return f'{n}\t{k}\t{dZ}\t{gamma}\t{nSX}\t{nSZ}\t{wLZ}\t{wSX}\t{wSZ}'
+
+
 
 ##########################################################
 ## Reflection Group Constructions
 ##########################################################
 
-# def rgColourCode(myrow,d):
-#     '''Make a  colour code based on reflection group cellulation.'''
-#     if d ==2:
-#         SX = str2ZMatdelim( myrow['zFV'])
-#         SZ = SX 
-#     else:
-#         SX = str2ZMatdelim( myrow['zSX'])
-#         SZ = str2ZMatdelim( myrow['zSZ'])
-#     return SX, SZ
-
-def C2E(C,d,w=None):
-    '''find intersections of d cells C. By setting w=2, we find all edges'''
+def C2E(Cells,d,w=None):
+    '''find intersections of Cells. d sets how many cells to take the intersection of. By setting w=2, we find all edges'''
     E = set()
-    for ix in iter.combinations(range(len(C)),d):
-        e = np.product(C[ix,:],axis=0)
+    ## sets of Cells of size d
+    for ix in iter.combinations(range(len(Cells)),d):
+        e = np.product(Cells[ix,:],axis=0)
+        ## ew is weight of intersection
         ew = np.sum(e)
+        ## here we select only intersections of desired weight w
         if (w is None and ew > 0) or (ew == w):
             E.add(tuple(e))
     return ZMat([e for e in E])
@@ -111,7 +148,6 @@ def RGCellulation(myrow,d):
     if d ==2:
         F = str2ZMatdelim( myrow['zFV'])
         E = str2ZMatdelim( myrow['zEV']).T
-        # E = C2E(F,2,w=2)
         return [E,F]
     else:
         C = str2ZMatdelim( myrow['zSX'])
@@ -124,20 +160,21 @@ def SXCellulation(SX,d):
     if d==2:
         ## Faces are SX
         F = SX
-        ## Edges
-        E = C2E(SX,d,w=2)
+        ## Edges - interseection of sets of faces of size 2 with weight 2
+        E = C2E(SX,2,w=2)
         Cells = [E,F]
     if d==3:
         ## 3-dimensional cells are SX
         C = SX
         ## intersections of 2 cells are faces
         F = C2E(SX,2)
-        ## Edges
-        E = C2E(SX,d,w=2)
+        ## Edges - interseection of sets of cells of size 3 with weight 2
+        E = C2E(SX,3,w=2)
+        r,n = np.shape(SX)
+        ## calculate cycles to split out faces - eg where cells intersect twice for smaller codes
+        Cycles = EF2Cycles(Cells[0],Cells[1])
+        Cells[1] = ZMat([set2Bin(n,c) for c in Cycles])
         Cells = [E,F,C]
-    r,n = np.shape(SX)
-    Cycles = EF2Cycles(Cells[0],Cells[1])
-    Cells[1] = ZMat([set2Bin(n,c) for c in Cycles])
     return Cells
 
 def EF2Cycles(E,F):
@@ -151,86 +188,60 @@ def EF2Cycles(E,F):
         Cycles.extend(getCycles(EList))
     return Cycles
 
-def cycleStart(myCycle,B):
-    '''Find first vertex in myCycle which has colour assigned in B'''
-    if len(B)==0:
-        return 0,0
-    for i in range(len(myCycle)):
-        ci = myCycle[i]
-        if ci in B:
-            return B[ci],i
-    return None
 
-def biColouring(Cycles):
-    '''input is a set of cycles around faces. Output: a bicolouring of the cycles'''
-    B = dict()
-    todo = list(Cycles)
-    isErr = False
-    ## cs is a counter for how many times we have tried to find a cycle with previously coloured vertex
-    cs = len(todo)
-    ## number of connected components
-    cc = 0
-    while len(todo) > 0 and not isErr:
-        ## if cs = len(todo), we take the first vertex and colour it 0
-        ## done for each connected component
-        if cs == len(todo):
-            cs = 0
-            cc += 1
-            res = (0,0)
-        else:
-            ## check if any vertex in the cycle has a colour assigned already
-            res = cycleStart(todo[cs],B)
-        if res is None:
-            ## if not, increment cs
-            cs += 1
-        else:
-            ## found starting point in cycle - we are goint to assign colours. Pop it out of the queue and reset cs
-            b, o = res
-            myCycle = todo.pop(cs)
-            cs = 0
-            n = len(myCycle)
-            for i in range(n):
-                ci = myCycle[(i + o) % n]
-                ## check if a colour has already been assigned
-                if ci in B:
-                    ## if there's a colour conflict, bicolouring fails
-                    if B[ci] != b:
-                        print(func_name(), 'Error',ci)
-                        isErr = True
-                        break
-                else:
-                    ## set the colour for ci
-                    B[ci] = b 
-                ## flip the colour
-                b = 1 - b
-    if len(B) == 0:
-        return []
-    ## turn B into a binary array
-    temp = [2] * (max(B.keys())+1)
-    for ci in B.keys():
-        temp[ci] = B[ci]
-    ## how many connected components do we have?
-    print(func_name(),'Connected Components',cc)
-    return ZMat(temp)
-        
-def edgeGraph(myrow,d):
-    '''given an RG tesselation, return a list of edge vertex pairs, ordered around cycles'''
-    CList = RGCellulation(myrow,d)
-    E,F = CList[0],CList[1]
-    ## set of non-intersecting faces which cover the cell
-    FList = FColouring(F)
-    Cycles = EF2Cycles(E,FList)
-    EList = [e for c in Cycles for e in cycle2edges(c)]
-    return EList
+def getCycles(EList):
+    '''Split vertices into sets joined by edges'''
+    FList = []
+    ## adjacency dict
+    Vadj = dict()
+    for e in EList:
+        for i in range(2):
+            if e[i] not in Vadj:
+                Vadj[e[i]] = []
+            Vadj[e[i]].append(e[i-1])
+    ## vertices already explored
+    explored = set()
+    ## vertices to explore
+    toExplore = []
+    while len(Vadj) > 0:
+        ## nothing to explore - find a new starting point
+        if len(toExplore) == 0:
+            ## new face
+            F = []
+            v = min(Vadj.keys())
+            ## add v to explored and toExplore
+            explored.add(v)
+            toExplore.append(v)
+        while len(toExplore) > 0:
+            ## next vertex
+            v = toExplore.pop()
+            F.append(v)
+            ## explore adjacent vertices
+            for u in Vadj[v]:
+                if u not in explored:
+                    explored.add(u)
+                    toExplore.append(u)
+            ## delete from adj Dict
+            del Vadj[v]
+        ## Face completed - add to FList
+        FList.append(F)
+    return FList
 
-def cycle2edges(c):
-    '''generate edge vertex pairs from cycle c'''
-    cLen = len(c)
-    E = []
-    for i in range(cLen):
-        j = (i + 1) % cLen
-        E.append((c[i],c[j]))
-    return E
+#############################
+## Colourings of Cellulations
+#############################
+
+def checkColouring(Adj,ix):
+    '''Check if a colouring ix for adjacency matrix Adj is valid - i.e. neighbours of ix and ix do not overlap'''
+    n = len(Adj)
+    for i in range(n):
+        Adj[i,i] = 0
+    ## neighbours of ix
+    NN = np.sum(Adj[ix],axis=0)
+    ## convert to binary vector
+    ix = set2Bin(n,ix)
+    ## check that ix and NN have no overlap
+    return np.sum(ix * NN) == 0
 
 def VColouring(E):
     '''return bicolouring of Vertices'''
@@ -239,11 +250,12 @@ def VColouring(E):
     for e in E:
         ## handle hyperedges
         e = bin2Set(e)
-        # print('e',e)
         for (i,j) in iter.combinations(e,2):
             Adj[i,j] = 1
             Adj[j,i] = 1
-    return multiComponentColouring(Adj) 
+    ix = multiComponentColouring(Adj) 
+    print(func_name(),'valid colouring', checkColouring(Adj,ix))
+    return ix
 
 def FColouring(F):
     '''return set of non-intersecting faces'''
@@ -255,6 +267,7 @@ def FColouring(F):
             if np.sum(F[i] * F[j]) > 1:
                 Adj[i,j] = 1
     ix = multiComponentColouring(Adj) 
+    print(func_name(),'valid colouring', checkColouring(Adj,ix))
     return F[ix]
 
 def multiComponentColouring(Adj):
@@ -298,73 +311,9 @@ def getColouring(Adj):
                 visited.add(j)
     return list(visited)
 
-# def indepFaces(SZ):
-#     '''return set of non-intersecting faces'''
-#     SZ = list(SZ)
-#     todo = [SZ.pop()]
-#     F = []
-#     while len(todo) > 0:
-#         z = todo.pop()
-#         F.append(z)
-#         SZtemp = []
-#         for z1 in SZ:
-#             w = np.sum(z1 * z)
-#             if w == 1:
-#                 todo.append(z1)
-#             if w == 0:
-#                 SZtemp.append(z1)
-#         SZ = SZtemp
-#     return F
-
-def getCycles(EList):
-    '''Split vertices into sets joined by edges'''
-    FList = []
-    ## adjacency dict
-    Vadj = dict()
-    for e in EList:
-        for i in range(2):
-            if e[i] not in Vadj:
-                Vadj[e[i]] = []
-            Vadj[e[i]].append(e[i-1])
-    ## vertices already explored
-    explored = set()
-    ## vertices to explore
-    toExplore = []
-    while len(Vadj) > 0:
-        ## nothing to explore - find a new starting point
-        if len(toExplore) == 0:
-            ## new face
-            F = []
-            v = min(Vadj.keys())
-            ## add v to explored and toExplore
-            explored.add(v)
-            toExplore.append(v)
-        while len(toExplore) > 0:
-            ## next vertex
-            v = toExplore.pop()
-            F.append(v)
-            ## explore adjacent vertices
-            for u in Vadj[v]:
-                if u not in explored:
-                    explored.add(u)
-                    toExplore.append(u)
-            ## delete from adj Dict
-            del Vadj[v]
-        ## Face completed - add to FList
-        FList.append(F)
-    return FList
-
-################
-
-
-def dictListAdd(D,k,v):
-    if k not in D:
-        D[k] = []
-    D[k].append(v)
-
-            
+           
 ##########################################################
-## Product Constructions
+## Graph Product Constructions
 ##########################################################
 
 ## Make 3D and 2D Graph Products
@@ -488,6 +437,11 @@ def Template_12_24_48_Cell():
                 dictListAdd(temp,k,v)
     return temp
 
+def dictListAdd(D,k,v):
+    '''add entry k->v to dictionary D'''
+    if k not in D:
+        D[k] = []
+    D[k].append(v)
 
 def Template24Cell():
     '''4-valent cellulation using 24 Vertex Truncated Octahedrons for 3D colour code'''
@@ -524,7 +478,7 @@ def Template24CellFacewise():
     return Cells
 
 ##########################################################
-## Expander Graph Constructions
+## Graph Constructions
 ##########################################################
 
 def SimplexGraph(d):
@@ -533,7 +487,7 @@ def SimplexGraph(d):
     return [bin2Set(a) for a in A]
 
 def cycle_graph(d,closed=True):
-    '''Cycle graph with d vertices. '''
+    '''Cycle graph with d vertices'''
     nRows = d if closed else d-1
     return [(i,(i + 1) % d) for i in range(nRows)]
 
@@ -549,27 +503,27 @@ def oct_graph(d):
     # all connected, apart from antipodal points
     return [(i,j) for i in range(n-1) for j in range(i+1,n) if (i + d) % n != j]
 
-## Margulis–Gabber–Galil
-## Vertices: (x,y)\in \mathbb {Z} _{n}\times \mathbb {Z} _{n}, its eight adjacent vertices are
-## Edges: (x \pm 2y,y),(x \pm (2y+1),y),(x,y \pm 2x),(x,y \pm (2x+1)).
+def edgeGraph(myrow,d):
+    '''given an RG tesselation, return a list of edge vertex pairs, ordered around cycles'''
+    CList = RGCellulation(myrow,d)
+    E,F = CList[0],CList[1]
+    ## set of non-intersecting faces which cover the cell
+    FList = FColouring(F)
+    Cycles = EF2Cycles(E,FList)
+    EList = [e for c in Cycles for e in cycle2edges(c)]
+    return EList
 
-def mgg(n):
-    V = [(x,y) for x in range(n) for y in range(n)]
-    VDict = {V[i]: i for i in range(len(V))}
+def cycle2edges(c):
+    '''generate edge vertex pairs from cycle c'''
+    cLen = len(c)
     E = []
-    for (x,y) in V:
-        xy = VDict[(x,y)]
-        for a in range(2):
-            for b in range(2):
-                x1 = (x + (-1)**a * (2*y + b) ) % n
-                y1 = (y + (-1)**a * (2*x + b) ) % n
-                if x1 != y:
-                    E.append((xy, VDict[(x1, y)]))
-                if y1 != x:
-                    E.append((xy, VDict[(x, y1)]))
+    for i in range(cLen):
+        j = (i + 1) % cLen
+        E.append((c[i],c[j]))
     return E
 
 def graphSumm(GList):
+    '''Print summary of parameters for a list of graphs'''
     EVec = []
     VVec = []
     for E in GList:
@@ -578,29 +532,6 @@ def graphSumm(GList):
         VVec.append(len(V))
     return f'E={EVec}, V={VVec}'
 
-def ZMat2Sparse(A):
-    return [bin2Set(a) for a in A]
-
-def checkDiagLO(L,Eq,SX,LX,SZ,t):
-    N = 1 << t
-    # calculate logical identities
-    if t > 2:
-        # for t>2, we need to do this explicitly
-        K_M = getKM(Eq,SX,LX,N//2) * 2
-    else:
-        # otherwise, use the Z-checks
-        # ensure they are in RREF
-        SZ, rowps = How(SZ,2)
-        r,n = np.shape(SZ)
-        ## append a column of zeros for phase
-        K_M = np.hstack([SZ,ZMatZeros((r,1))]) * (N//2)
-    if not isDiagLO(L,SX,K_M,N):
-        return False
-    pList, V = DiagLOActions([L],LX,N)
-    # isDiagLO(B,SX,K_M,N)
-    ## actions as CP operators
-    q = action2CP(V,pList[0],N)
-    return q, V
 
 ##########################################################
 ## Reflection Group Codes
@@ -616,7 +547,7 @@ myfile = "8-3-codes.txt"
 ## tesselation of 24-cells
 # myfile = "3-3-3-3-codes.txt"
 # ## tesselation of 48-cells
-# # myfile = "3-4-3-4-codes.txt"
+# myfile = "3-4-3-4-codes.txt"
 # # myfile = "4-3-4-2-codes.txt"
 
 ## Uncomment to use Reflection Group codes
@@ -624,9 +555,9 @@ t = 2 if len(myfile) - len(myfile.replace("-","")) == 2 else 3
 codeList = importCodeList(myfile)
 codeType = 'RG'
 
-## Uncomment to select a single code
-# ix = 1
-# codeList = [codeList[ix]]
+## Uncomment to select a subset of codes
+# ix = range(10,15)
+# codeList = [codeList[i] for i in ix]
 
 ####################################
 ## Graph Product Codes
@@ -674,54 +605,14 @@ codeType = 'RG'
 #     SX = graphProduct3D(GList,TCells)
 #     codeList.append(SX)
 
-i = 0
+## uncomment for code parameters report
+# print('n\tk\tdZ\tgamma\tnSX\tnSZ\twLZ\twSX\twSZ')
 for myrow in codeList:
     if codeType == 'RG':
         Cells = RGCellulation(myrow, t)
     else:
         Cells = SXCellulation(myrow, t)
-    E,F = Cells[0],Cells[1]
-    SX = Cells[-1]
-    SZ = Cells[1]
-    # r,n = np.shape(SX)
-    # if t == 2:
-    #     SZ = Cells[1]
-    # else:
-    #     SZ = ZMat([set2Bin(n,c) for c in Cycles])
-    N = 1 << t
-    comm = matMul(SX,SZ.T,2)
-    print("\n")
-    if np.sum(comm) == 0:
-        Eq,SX,LX,SZ,LZ = CSSCode(SX,SZ=SZ)
-
-        # LX = minWeightLZ(SX,LX)
-        # LZ = minWeightLZ(SZ,LZ)
-        k,n = np.shape(LX)
-        print(f'{i} [[{n},{k}]] Code')
-        if k > 0:
-            B2 = VColouring(E)
-            # print('B2',B2)
-            
-            B = set2Bin(n,B2)
-            # Cycles = EF2Cycles(Cells[0],Cells[1])
-            # B = biColouring(Cycles)
-            ## check if a valid bicolouring
-            if len(B) > 0 and max(B) < 2:                
-                print('biColouring',bin2Set(B))
-                ## Make Logical operator from Bicolouring
-                L = np.mod((-1) ** B,N)
-                ## phase applied to codewords
-                res = checkDiagLO(L,Eq,SX,LX,SZ,t)
-                if res is False:
-                    print('Not a Logical Operator')
-                else:
-                    q,V = res
-                    print('Logical operator with action',CP2Str(2*q,V,N))
-            else:
-                print('No Bicolouring')
-                LOReport(Eq,SX,LX,SZ,LZ,t)
-    else:
-        print(i,'Non-commuting stabilisers')
-    i += 1
-
-# codeStatsReport(codes,calcDist=True,calck=True,LO=False)
+    ## uncomment for analysis of LO found by bicolouring
+    bicolouringAnalysis(Cells,t)
+    ## uncomment for code parameter report
+    # print(codeStats(Cells,True,True,False))
