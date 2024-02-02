@@ -718,7 +718,7 @@ HList = [H for i in range(d)]
 # HList[1] = make_even(random_code(3,4))
 
 ## uncomment to make double complex
-double = True
+double = False
 
 print('Classical Codes')
 for i in range(len(HList)):
@@ -740,18 +740,18 @@ SG = False
 SX, SZ, LX, LZ = Complex_to_Code_test(C,SG)
 
 ## default product code type
-# SX, SZ = Complex_to_Code(C,SG)
+# SX, SZ, LX, LZ = Complex_to_Code(C,SG)
 
 # default 2D code
-# SX, SZ = Complex_to_Code_2D(C,SG)
+# SX, SZ, LX, LZ = Complex_to_Code_2D(C,SG)
 
 # # These are all 3D tyes requiring d=3
 
 # # Based on 8-24-48 honeycomb
-# SX, SZ = Complex_to_8_24_48_Cell(C,SG)
+# SX, SZ, LX, LZ = Complex_to_8_24_48_Cell(C,SG)
 
 # # Based on 24-cell honeycomb
-# SX, SZ = Complex_to_24_Cell(C,SG)
+# SX, SZ, LX, LZ = Complex_to_24_Cell(C,SG)
 
 #################################################
 ## basic analysis of code
@@ -761,6 +761,7 @@ comm = matMul(SX,SZ.T,2)
 print('Stabilisers commute',np.sum(comm) == 0)
 
 print('QuasiTransversal',d,QuasiTransversal(SX,LX,d))
+
 # n,k = np.shape(LX)
 # if len(LZ) > 0:
 #     LZ = minWeightLZ(SZ,LZ)
