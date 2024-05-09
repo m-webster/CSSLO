@@ -1,5 +1,5 @@
 import numpy as np
-from NSpace import *
+from NHow import *
 from common import * 
 
 def XP2Str(a,N=2):
@@ -29,24 +29,37 @@ def XPRound(a,N=2):
     x,z = np.mod(a[:n+1],2),np.mod(a[n+1:],N)
     return np.hstack([x,z])
 
+def XPPow(a,m,N=2):
+    m = m % (2*N)
+    p,x,z = XPComponents(a)
+    n = len(x)
+    s = m % 2
+    am = a * m 
+    # adjust Z-phase
+    am[-1] += (a[n] * m) // 2 
+    return XPRound(am + XPD((m-s) * x * z,N),N)
+
 def XPMul(a,b,N=2):
     c = a + b
     n = XPn(a)
     p1,x1,z1 = XPComponents(a)
     p2,x2,z2 = XPComponents(b)
-    c += XPD(z1*x2,N)
-    ## adjust phase component
+    c += XPD(2*z1*x2,N)
+    ## adjust Z-phase component
     c[-1] += a[n] * b[n]
     return XPRound(c,N)
 
 def XPD(z,N=2):
     n = len(z)
-    return XPRound(np.hstack([ZMatZeros(n+1),-2*z,[np.sum(z)]]),N)
+    p = np.sum(z)
+    px = p % 2
+    pz = p // 2
+    return XPRound(np.hstack([ZMatZeros(n),[px],-z,[pz]]),N)
 
 def XPComm(a,b,N=2):
     p1,x1,z1 = XPComponents(a)
     p2,x2,z2 = XPComponents(b)
-    return XPD(x1*z2 - x2*z1 + 2*x1*x2*(z1-z2),N)   
+    return XPD(2*x1*z2 - 2*x2*z1 + 4*x1*x2*(z1-z2),N)   
 
 def genMatrix(SX,SZ,SXZ,randomsign=True):
     '''Make generator matrix from codetables.de format data'''
@@ -68,16 +81,13 @@ def genMatrix(SX,SZ,SXZ,randomsign=True):
 def XPSimplifyX(G,N=2):
     n = XPn(G[0])
     A = G[:,:n+1]
-    Sx,rowops = How(A,2)
-    U,K = GetUK(A,Sx,rowops,2)
-    U = np.vstack([U,K])
+    Sx, U = getHU(A,2)
     G = [XPGenProd(G,u,N) for u in U]
     return ZMat(G)
 
 def XPisDiag(a):
     n = XPn(a)
     return 1 if np.sum(a[:n]) == 0 else 0
-
 
 def XPGenProd(A,u,N=2):
     '''A is a list of XP operators. 
@@ -89,6 +99,93 @@ def XPGenProd(A,u,N=2):
         temp = XPMul(temp,A[i],N)
     return temp
 
+def XPCanonicalGens(G,t):
+    N = 1 << t
+    n = XPn(G[0])
+    ## X components in RREF
+    G = XPSimplifyX(G,N)
+
+    ## Split into diagonal and non-diagonal operators
+    ix = ZMat([XPisDiag(a) for a in G])
+    SX,SZ = G[bin2Set(1-ix)],G[bin2Set(ix)]
+    toAdd = []
+       
+    ## add squares and commutators of SX
+    for i in range(len(SX)):
+        toAdd.append(XPMul(SX[i],SX[i],N))
+        for j in range(i+1, len(SX)):
+            toAdd.append(XPComm(SX[i],SX[j]))
+
+    SZ = np.hstack([SZ,toAdd])
+
+    ## Split into X and Z components
+    SXx = SX[:,:n+1]
+    SXz = SX[:,n+1:]
+    SZz = SZ[:,n+1:]
+
+    ## Sz in Howell form/RREF
+    SZz = getH(SZz,N)
+
+    ## add up to t-level commutators between SX and SZ
+    for i in range(t):
+        toAdd = SXx * SZz
+        p = np.sum(toAdd[:,:-1],axis=-1)
+        toAdd = -2 * toAdd 
+        toAdd[:,-1] = p
+        SZz = np.hstack([SZz,np.mod(toAdd, N)])
+        SZz = getH(SZz,N)
+
+    ## eliminate entries in SXz
+    SXz, V = HowRes(SZz,SXz)
+    SX = np.hstack([SXx,SXz])
+    s,n = np.shape(SXz)
+    SZ = np.hstack([ZMatZeros(np.shape(SZz)), SZz])
+    return SX, SZ
+
+
+def XPCanonicalGens(G,t):
+    N = 1 << t
+    n = XPn(G[0])
+    ## X components in RREF
+    G = XPSimplifyX(G,N)
+
+    ## Split into diagonal and non-diagonal operators
+    ix = ZMat([XPisDiag(a) for a in G])
+    SX,SZ = G[bin2Set(1-ix)],G[bin2Set(ix)]
+    toAdd = []
+       
+    ## add squares and commutators of SX
+    for i in range(len(SX)):
+        toAdd.append(XPMul(SX[i],SX[i],N))
+        for j in range(i+1, len(SX)):
+            toAdd.append(XPComm(SX[i],SX[j]))
+
+    SZ = np.hstack([SZ,toAdd])
+
+    ## Split into X and Z components
+    SXx = SX[:,:n+1]
+    SXz = SX[:,n+1:]
+    SZz = SZ[:,n+1:]
+
+    ## Sz in Howell form/RREF
+    SZz = getH(SZz,N)
+
+    ## add up to t-level commutators between SX and SZ
+    for i in range(t):
+        toAdd = SXx * SZz
+        p = np.sum(toAdd[:,:-1],axis=-1)
+        toAdd = -2 * toAdd 
+        toAdd[:,-1] = p
+        SZz = np.hstack([SZz,np.mod(toAdd, N)])
+        SZz = getH(SZz,N)
+
+    ## eliminate entries in SXz
+    SXz,V = HowRes(SZz,SXz,N)
+    SX = np.hstack([SXx,SXz])
+    s,n = np.shape(SXz)
+    SZ = np.hstack([ZMatZeros(np.shape(SZz)), SZz])
+
+    return SX, SZ
 
 def canonicalGenerators(G):
     '''Return canonical form stabiliser generators and logical X/Z following Neilsen & Chuang page 471
@@ -116,12 +213,9 @@ def canonicalGenerators(G):
     Sxz = Sxz[:,ix] 
     Sz = Sz[:,ix] 
 
-    ## Sz in Howell form/RREF
-    Sz, rowops = How(Sz,N)
-    ## eliminate entries in Sxz
-    for i in range(len(Sxz)):
-        Sxz[i],u = matResidual(Sz,Sxz[i],N)
-
+    R,V,H,U,K = solveHU(Sz,Sxz,N)
+    Sz = H
+    Sxz = R
     ## move leading indices of Sz to right
     LiZ = [leadingIndex(a) for a in Sz]
     ## remember the original positions of LiZ
@@ -166,8 +260,6 @@ def checkCommRelations(SX,SZ,LX,LZ):
             c = XPComm(G[i],G[j],2)
             ## commutator sign
             C[i,j] = c[-1]
-    # print('Commutator relations SX,SZ,LX,LZ')
-    # print(ZmatPrint(C))
 
     r,s,k = len(SX),len(SZ),len(LX)
     for i in range(k):

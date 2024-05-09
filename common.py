@@ -1,7 +1,35 @@
 import numpy as np
+import itertools as iter
 import sys
-import itertools
 import time
+
+#######################################
+## Sorting and Indexing
+#######################################
+
+def argsort(seq,reverse=False):
+    '''Argsort but allowing for sorting of tuples'''
+    # http://stackoverflow.com/questions/3071415/efficient-method-to-calculate-the-rank-vector-of-a-list-in-python
+    return sorted(range(len(seq)), key=seq.__getitem__,reverse=reverse)
+
+def ixRev(ix):
+    ## return indices to restore original column order
+    ## input: ix - permutation of [0..n-1]
+    ## output: ixR such that ix[ixR] = [0..n-1]
+    n = max(ix) + 1
+    ixR = ZMatZeros(n)
+    ixR[ix] = range(len(ix))
+    return ixR
+
+
+
+def nonDecreasing(w):
+    '''Check whether vector w is non-decreasing'''
+    for i in range(1,len(w)):
+        if w[i] < w[i-1]:
+            return False 
+    return True
+
 
 
 #######################################
@@ -11,14 +39,6 @@ import time
 #######################################
 ## Create ZMat
 #######################################
-
-
-def freqTable(wList):
-    '''Dict of val:count for val in wList'''
-    temp = {w:0 for w in set(wList)}
-    for w in wList:
-        temp[w] += 1
-    return temp
 
 def ZMat(A,n=None):
     '''Create an integer numpy array. If n is set, ensure that the row length is n.'''
@@ -40,65 +60,72 @@ def ZMatZeros(s):
     '''Return integer array of zeros of length/shape s'''
     return np.zeros(s,dtype=int)
 
-def set2Bin(n,t):
+
+
+####################################
+## Conversions to other formats
+####################################
+
+def isIter(A):
+    return hasattr(A,'__iter__')
+
+def Lolshape(CC):
+    if len(CC) == 0 or not isIter(CC[0]):
+        return [len(CC)]
+    else:
+        return [len(CC)] + Lolshape(CC[0])
+
+def SL2ZM(CC,ix,A):
+    '''recursive step for Sets2ZMat'''
+    if len(CC) == 0 or not isIter(CC[0]):
+        for i in CC:
+            ix2 = (ix + [i])
+            A[*ix2] = 1
+    else:
+        i = 0
+        for c in CC:
+            ix2 = ix + [i]
+            SL2ZM(c,ix2,A)
+            i+=1
+
+def Sets2ZMat(n,CC):
+    '''Convert a list of lists or sets to a binary matrix with rows of length n
+    Fast method - matrix storage is allocated at beginning'''
+    ## get shape of final matrix
+    s = Lolshape(CC)
+    s[-1] = n
+    ## intialise to all zeros
+    A = np.zeros(s,dtype=np.int8)
+    ## recursion
+    SL2ZM(CC,[],A)
+    return A
+
+def ZMat2Sets(A):
+    '''Convert a binary matrix to a list of lists of non-zero entries
+    recursive method'''
+    if len(A.shape) == 1:
+        return bin2Set(A)
+    else:
+        return [ZMat2Sets(B) for B in A]
+
+def Mnt(n,t,mink=1):
+    '''Rows are binary strings of length n of weight mink to t'''
+    CC = [s for k in range(mink, t+1) for s in iter.combinations(range(n),k)]
+    return Sets2ZMat(n,CC)
+    A = [set2Bin(n,s) for k in range(mink, t+1) for s in iter.combinations(range(n),k)]
+    return ZMat(A)
+
+### multi dimensional versions?
+def set2Bin(n,A):
     '''Convert list of integers t to a binary vector of length n'''
     temp = ZMatZeros(n)
-    temp[list(t)] = 1
+    temp[list(A)] = 1
     return temp
 
 def bin2Set(v):
     '''Convert binary vector to a list of indices such that v[i] !=0'''
-    return [i for i in range(len(v)) if v[i] != 0]
-
-def colVector(b):
-    return  np.reshape(ZMat2D(b),(-1,1))
-
-def rowVector(b):
-    return  np.reshape(ZMat2D(b),(1,-1))
-
-####################################
-## Operations on ZMat
-####################################
-
-def matAdd(A,B,N):
-    '''Add two integer matrices, first resizing to allow valid addition'''
-    ma,na = A.shape
-    mb,nb = B.shape
-    m = max(ma,mb)
-    n = max(na,nb)
-    A = matResize(A,m,n)
-    B = matResize(B,m,n)
-    return np.mod(A+B,N)
-
-def matMul(A,B,N=False):
-    '''Multiply two integer matrices modulo N. Reshape to allow valid multiplication.'''
-    A = ZMat2D(A)
-    B = ZMat2D(B)
-    ma,na = A.shape
-    mb,nb = B.shape
-    n = max(na,mb)
-    if na < n:
-        A = matResize(A,ma,n)
-    if mb < n:
-        B = matResize(B,n,nb)
-    if N is False:
-        return A @ B
-    else:
-        return np.mod(A @ B, N)
-
-def RemoveZeroRows(A,N=False):
-    '''Remove any zero rows from integer matrix A'''
-    A = ZMat2D(A)
-    ix = np.logical_not([isZero(a,N) for a in A])
-    return A[ix]
-
-def ZMatSort(A,reverse=False):
-    '''Sort rows of A, considering each row to be a tuple.'''
-    if np.ndim(A) == 1:
-        return A
-    A = ZMat(A)
-    ix = argsort(ZMat2tuple(A),reverse=reverse)
-    return A[ix,:]
+    v = np.ravel(v)
+    return list(np.nonzero(v)[0])
 
 def ZMat2tuple(A):
     '''Convert rows of A to tuples.'''
@@ -106,29 +133,30 @@ def ZMat2tuple(A):
     A = np.reshape(A,(-1,n))
     return [tuple(a) for a in A]
 
-def argsort(seq,reverse=False):
-    '''Argsort but allowing for sorting of tuples'''
-    # http://stackoverflow.com/questions/3071415/efficient-method-to-calculate-the-rank-vector-of-a-list-in-python
-    return sorted(range(len(seq)), key=seq.__getitem__,reverse=reverse)
+def set2tuple(c):
+    return tuple(sorted(set(c)))
+    n = max(c) + 1
+    return tuple(inRange(n,c))
 
+def invRange(n,S):
+    '''return list of elements of range(n) NOT in S'''
+    return sorted(set(range(n)) - set(S))
 
-def ixRev(ix):
-    ## return indices to restore original column order
-    ## input: ix - permutation of [0..n-1]
-    ## output: ixR such that ix[ixR] = [0..n-1]
-    ixR = [0] * len(ix)
-    for i in range(len(ix)):
-        ixR[ix[i]] = i 
-    return ixR
+def inRange(n,S):
+    '''return list of elements of range(n) which ARE in S'''
+    return sorted(set(S).intersection(range(n)))
+
+def int2bin(x,d,N=2):
+    '''convert integer to base N vector'''
+    temp = []
+    for i in range(d):
+        temp.append(x % N)
+        x = x // N
+    return ZMat(temp)
 
 ##############################
 ## ZMat Info
 ##############################
-
-def matEqual(A,B,N):
-    '''Check if integer matrices A and B are equal.'''
-    temp = matAdd(A,-B,N)
-    return isZero(temp,N)
 
 def leadingIndex(a):
     '''Return leading index of vector a (ie smallest value for which a[i] !=0)'''
@@ -144,28 +172,26 @@ def isZero(A,N=False):
         A = np.mod(A,N)
     return np.all(A == 0)
 
-def binn(SX):
-    '''Find the row length n of SX - could be None''' 
-    if SX is None:
-        return 0 
-    SX = ZMat2D(SX) 
-    m,n = np.shape(SX)
-    return n
+
+#######################################
+## ZMat Analysis
+#######################################
+
+def freqTable(wList):
+    '''Dict of val:count for val in wList'''
+    temp = {w:0 for w in set(wList)}
+    for w in wList:
+        temp[w] += 1
+    return temp
+
+def freqTablePrint(wList):
+    FT = freqTable(wList)
+    temp = [f'{k}:{FT[k]}' for k in sorted(FT.keys())]
+    return ",".join(temp)
 
 ##########################
 ## Changing Shape of ZMat
 ##########################
-
-def ZMat1D(A,n):
-    '''Return a 1-dimensional integer numpy array from A of length n'''
-    A = ZMat(A)
-    if np.ndim(A) != 1:
-        A = np.reshape(A,(-1,))
-    if len(A) < n:
-        A = np.tile(A,n//len(A))
-    if len(A) > n:
-        A = A[:n]
-    return A
 
 def ZMat2D(A):
     '''Return a 2-dimensional integer numpy array from A.'''
@@ -179,36 +205,10 @@ def ZMat2D(A):
     d = np.shape(A)[-1]
     return np.reshape(A,(-1,d))
 
-def matResize(A,m,n,check=False):
-    '''Resize integer matrix A to be m x n'''
-    if check is not False:
-        ma,na = check.shape
-        return ma == m and na == n
-    ma,na = A.shape
-    dn = n-na
-    dm = m-ma
-    if dn == 0 and dm == 0:
-        return A
-    temp = []
-    for i in range(min(m,ma)):
-        r = mat2list(A[i])
-        if dn > 0:
-            r = r + [0] * dn
-        if dn < 0:
-            r = r[:n]
-        temp.append(r)
-    for i in range(dm):
-        temp.append([0] * n)
-    return ZMat2D(temp)
-
-def mat2list(b):
-    '''Convert ZMat to one-dimensional list of values.'''
-    b = ZMat2D(b)
-    return b.flatten().tolist()
-
 ##########################
 ## String I/0 for ZMat
 ##########################
+
 def row2components(r):
     '''For integer vector r return indices for the non-zero values ix=supp(r) and the non-zero values r[ix].
     Useful for displaying large vectors.'''
@@ -219,8 +219,6 @@ def row2compStr(r):
     '''Display row r using indices for non-zero values and list of non-zero values
     Useful for displaying large vectors.'''
     ix,vals = row2components(r)
-    ix = str(mat2list(ix))
-    vals = str(mat2list(vals))
     return f'{ix}:= {vals}'.replace(" ","")
 
 def ZMat2compStr(A):
@@ -242,7 +240,7 @@ def str2ZMatdelim(S=''):
     S = S.split(sep)
     return ZMat([str2ZMat(s) for s in S])
 
-def bin2Zmat(SX):
+def bin2ZMat(SX):
     '''Convert multiple types of binary vector input to integer matrix.
     SX is either string or array.'''
     if SX is None:
@@ -265,15 +263,25 @@ def ZMat2str(A,N=None):
         Nw= len(str(N-1))
         S = np.char.rjust(S,Nw)
         sep = " "
+    return sep.join(S)
     return np.apply_along_axis(func1d=sepjoin,axis=-1,arr=S,sep=sep)
 
 def sepjoin(a,sep):
     '''Join text vector a using sep - for display of ZMat.'''
     return sep.join(a)
 
-def ZmatPrint(A,N=None):
+def ZMatPrint(A,N=None,nA=0,tB=1):
     '''Print integer matrix A'''
-    return "\n".join(ZMat2str(ZMat2D(A),N))
+    temp = []
+    A = ZMat2D(A)
+    m,n = A.shape
+    nB = (n - nA)//tB
+    for r in A:
+        myRow = [ZMat2str(r[t*nB:(t+1)*nB],N) for t in range(tB)]
+        if tB*nB < n:
+            myRow.append(ZMat2str(r[tB*nB :],N))
+        temp.append("|".join(myRow))
+    return "\n".join(temp)
 
 #################################################
 ## Debugging Functions
@@ -302,32 +310,6 @@ def typeName(val):
     '''Return the name of the type of val in text form.'''
     return type(val).__name__
 
-#########################################
-## getVal/setVal - store properties of objects where these are complex to compute
-#########################################
-
-def getVal(obj,label):
-    '''Get a value indexed by label from obj. If not set, run "getlabel" function.'''
-    if checkVal(obj,label):
-        return getattr(obj,label)
-    getlabel = 'get'+label
-    if getlabel not in dir(obj):
-        return False
-    f = obj.__getattribute__(getlabel)
-    if type(f).__name__ != 'method':
-        return False
-    return setVal(obj,label,f())
-
-def checkVal(obj,label):
-    '''Check if object has value corresponding to label set'''
-    if not hasattr(obj,label):
-        return False
-    return getattr(obj,label) is not None
-
-def setVal(obj,label,val=None):
-    '''Set value corresponding to label to val.'''
-    setattr(obj,label,val)
-    return val
 
 ##################################
 ## Integer logarithms
@@ -341,9 +323,7 @@ def logCeil(x,N=2):
         i = i+1
     return i
 
-
 def log2int(N):
     '''Find t such that N = 2**t or None otherwise'''
     t = logCeil(N-1,2) 
     return t if 2 ** t == N else None
-

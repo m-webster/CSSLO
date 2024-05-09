@@ -1,6 +1,7 @@
 import numpy as np
-from NSpace import *
+from NHow import *
 from common import * 
+import itertools
 
 ########################################
 ## Algebra of CP operators            ##
@@ -74,6 +75,19 @@ def XCPMul(A, B, V, N,CP=True):
     x = np.mod(x1 + x2, 2)
     z = np.mod(c + z2, 2 * N)
     return (x, z)
+
+def XCPInv(A, V, N,CP=True):
+    '''Inverse of XCP/XRP operator A'''
+    x1, z1 = A 
+    z1 = np.mod(-z1,2*N)
+    z2 = CPX(x1,z1,V,N,CP)
+    return (x1, z2)
+
+def XCPComm(A, B, V, N,CP=True):
+    '''Group commutator of XCP/XRP operators [[A,B]] := A B A^{-1} B^{-1}'''
+    C = XCPMul(A, B, V, N,CP)
+    D = XCPMul(XCPInv(A, V, N,CP), XCPInv(B, V, N,CP), V, N,CP)
+    return XCPMul(C, D, V, N,CP)
 
 #####################################
 ## Helper functions for CP and RP Operators
@@ -307,16 +321,11 @@ def CP2RP(q1,V1,t,CP=True,Vto=None):
         q2,V2 = CPNonZero(q2,V2)
     return (q2,V2)
 
-
 ##########################################
 ## Embedding Operations
 ##########################################
 
 
-def Mnt(n,t,mink=1):
-    '''Rows are binary strings of length n of weight mink to t'''
-    A = [set2Bin(n,s) for k in range(mink, t+1) for s in itertools.combinations(range(n),k)]
-    return ZMat(A)
 
 def VOverlap(V):
     v = len(V)
