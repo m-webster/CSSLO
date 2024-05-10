@@ -4,6 +4,7 @@ from common import *
 from NHow import *
 from CSSLO import *
 import itertools as iter
+import numpy as np
 
 def SMatrix(n):
     S = ZMatI(n)
@@ -24,19 +25,6 @@ def BivariantBicycle(l,m,Apoly,Bpoly):
     SX = np.hstack([A,B])
     SZ = np.hstack([B.T,A.T])
     return SX,SZ
-
-def transp(x,l,m):
-    x = np.reshape(x,(l,m))
-    return np.reshape(x.T,l*m)
-
-def LOReport(SX,LX,SZ,LZ,t):
-    N = 1 << t
-    print('\nCalculating Transversal Logical Operators')
-    zList, qList, V, K_M = comm_method(SX, LX, SZ, t,compact=True,debug=False)
-
-    print(f'(action : z-component)')
-    for z, q in zip(zList,qList):
-        print( CP2Str(2*q,V,N),":", z2Str(z,N))
 
 # 72-qubit code d=6
 # l,m = 6,6
